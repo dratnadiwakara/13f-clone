@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+data/cache/
+data/compustat/staging/
+data/compustat/compustat.duckdb
+data/13f/provisional/_cache/
+backtest/cache/
+quarters/*/02_ranks.parquet

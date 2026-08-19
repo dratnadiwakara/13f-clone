@@ -1,0 +1,125 @@
+paths:
+  holdings_parquet: data/13f/13f_holdings_slim.parquet
+  # Provisional sidecars built from individual EDGAR 13F-HR filings, for
+  # quarters SEC has not yet published in bulk. Auto-used by run_quarter.py
+  # when manager coverage >= provisional.min_coverage. Never merged into
+  # holdings_parquet.
+  provisional_dir: data/13f/provisional
+  compustat_duckdb: data/compustat/compustat.duckdb
+  candidate_managers: data/managers/candidate_managers.txt
+  gdp_parquet: data/macro/gdp.parquet
+  sp_pe_parquet: data/macro/sp_pe.parquet
+
+signal_thresholds:
+  add_dollar_weight: 0.005
+  add_shares_ratio: 1.5
+  start_quarter: 2018Q1
+
+universe:
+  active_filer_trailing_qtrs: 8
+  active_filer_min_filings: 1
+  active_filer_window_qtrs: 12
+  active_filer_window_min: 3
+
+bands:
+  hc_min_weight: 0.07
+  mc_min_weight: 0.01
+  mc_max_weight: 0.05
+  carry_lookback_qtrs: 6
+  carry_min_original_weight: 0.10
+  carry_min_elite_managers: 1
+  mc_min_elite_managers: 1
+
+macro:
+  sp500_pe_threshold: 20.0
+  mktcap_over_gdp_threshold: 0.05
+  live_mktcap_window_days: 7
+  stale_days: 60
+
+# Magic-formula selection (final strategy: HC >= 7% conviction -> quant pass
+# -> MF percentile <= pctile_cutoff on the global universe -> top_n by
+# percentile -> macro gate). Parameters set by backtest/sweep.py robustness
+# sweep (2026-08): hc 7% / cutoff 0.50 / top 10 dominated the old
+# 5%/0.40/top-7 on raw XIRR, outlier-stripped XIRR, and worst-window excess.
+mf:
+  min_cap_musd: 50
+  pctile_cutoff: 0.50
+  top_n: 10
+  filing_lag_days: 90
+  max_age_days: 550
+  # Greenblatt universe exclusions, per operator policy:
+  # utilities always excluded; financials excluded ONLY when US-domiciled
+  # and federally regulated (Fed/FDIC/OCC) -- foreign financials (e.g. KSPI)
+  # stay in the universe.
+  exclude_gsector: [55]
+  depository_sic: [6020, 6021, 6022, 6029, 6035, 6036, 6712]
+
+# Position sizing: equal weight across the quarter's selections, but never
+# more than max_weight of the quarter's contribution in any one ticker.
+# Remainder stays in cash (deployed in later, fuller quarters). Backtested
+# ~0.3pt below uncapped full-period; adopted for single-name tail risk.
+sizing:
+  max_weight: 0.20
+
+provisional:
+  min_coverage: 0.75
+
+# Fundamentals freshness: HC candidates whose latest Compustat datadate is
+# older than this get an EDGAR companyfacts recompute (refresh/refresh_fundamentals.py).
+fundamentals:
+  stale_days: 183
+
+hard_excludes:
+  depositories:
+    - JPM
+    - BAC
+    - C
+    - WFC
+    - USB
+    - PNC
+    - TFC
+    - FITB
+    - RF
+    - KEY
+    - CFG
+    - MTB
+    - HBAN
+    - ZION
+    - CMA
+    - FRC
+    - SIVB
+    - PACW
+    - WAL
+    - CFR
+    - ONB
+    - BOKF
+    - GBCI
+    - GS
+    - MS
+    - SCHW
+    - ALLY
+    - COF
+    - DFS
+    - AXP
+    - SYF
+  etfs:
+    - SGOV
+    - BIL
+    - SHV
+    - SHY
+    - GOVT
+    - TLT
+    - IEF
+    - PHYS
+    - GLD
+    - IAU
+    - SLV
+    - PSLV
+    - SPY
+    - IVV
+    - VOO
+    - QQQ
+    - VTI
+    - IWM
+    - IWF
+    - FBTC

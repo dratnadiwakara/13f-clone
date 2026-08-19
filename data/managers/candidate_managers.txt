@@ -1,0 +1,83 @@
+# Selected Superinvestors — Concentrated cohort variant
+#
+# Filter applied to "Elite 13F managers" section:
+#   - Avg Pos < 20  (concentrated)
+#   - Turnover < 15%  (low churn)
+# Section 1 "Existing tracked investors" kept in full.
+#
+# Loader behaviour (build_major_purchases.py): default reads sections 1+2 only.
+
+## Existing tracked investors
+
+Code      CIK           Manager
+DA        0001671657     Pat Dorsey (Dorsey Asset Management)
+FS        0001569205     Terry Smith (Fundsmith LLP)
+FS        0001868537     Terry Smith (Fundsmith Investment Services Ltd)
+AC        0001112520     Chuck Akre (Akre Capital Management)
+BAUPOST   0001061768     Seth Klarman (Baupost Group)
+PTNT      0001854794     Samantha McLemore (Patient Capital Management)
+PI        0001549575     Mohnish Pabrai (Dalal Street)
+RVC       0001766596     Robert Vinall (RV Capital)
+GLC       0001766504     Josh Tarasoff (Greenlea Lane Capital Management LLC)
+GLC       0001413048     Josh Tarasoff (Greenlea Lane Capital Partners LP)
+HC        0001709323     Li Lu (Himalaya Capital Management)
+psc       0001336528     Bill Ackman (Pershing Square Capital Management)
+CAS       0001697591     Clifford Sosin (CAS Investment Partners)
+SAM       0001649339     Michael Burry (Scion Asset Management)
+
+## Elite 13F managers (>=15% IRR, 2013Q1-2017Q4)
+
+# Filtered: Avg Pos < 20 AND Turnover < 15%
+
+CIK           Manager                                         IRR     TWR     Streak          Avg Portfolio($k)  Avg Pos  Top10%  Turnover%
+0001269094    FOLKETRYGDFONDET                                 464%    200.1%  2014Q4-2017Q4   3,281k             9        100.0%  5.8%
+0001500544    Meritech Capital Associates III L.L.C.           117%    20.9%   2013Q2-2017Q4   332k               5        100.0%  8.3%
+0001382333    Meditor Group Ltd                                34%     36.1%   2013Q2-2017Q4   341k               8        96.6%   9.9%
+0001517642    Battery Partners IX, LLC                         28%     31.0%   2014Q4-2017Q4   194k               4        100.0%  9.4%
+0001325083    Knoll Capital Management, LP                     22%     13.6%   2013Q2-2017Q4   193k               16       97.7%   10.9%
+0001635236    Nine Ten Capital Management LLC                  22%     21.2%   2015Q1-2017Q4   289k               10       98.9%   13.0%
+0001554026    Highland Management Partners VII, LLC            21%     41.4%   2013Q4-2016Q3   137k               4        100.0%  0.5%
+0001571076    Aisling Capital LLC                              21%     23.1%   2013Q4-2017Q4   540k               16       89.1%   13.4%
+0001040508    BAIN CAPITAL INVESTORS LLC                       19%     19.3%   2013Q2-2017Q4   9,902k             11       99.5%   12.7%
+0001540726    Deer VII & Co. Ltd.                              18%     37.7%   2013Q2-2017Q4   195k               5        100.0%  12.3%
+0000889232    INVESTOR AB                                      17%     16.6%   2013Q2-2017Q4   1,167k             10       99.9%   0.6%
+0001532262    Greenbrier Partners Capital Management, LLC      16%     16.7%   2013Q2-2017Q4   405k               19       79.5%   7.0%
+0001507683    RWWM, Inc.                                       16%     15.4%   2013Q1-2017Q4   219k               9        100.0%  5.4%
+0001542294    Third Security, LLC                              16%     11.3%   2013Q2-2017Q4   2,102k             17       98.1%   2.0%
+0001506409    Silchester International Investors LLP           16%     14.7%   2013Q2-2017Q4   1,642k             5        99.9%   5.5%
+
+## Persistence-selected managers (2013Q1-2026Q1 filings-implied returns)
+
+# Method: retained-position revaluation on materials/13f/13f_holdings.parquet.
+# Filter: >=20 quarters, median AUM >= $100M, 5 <= median positions <= 500,
+#         CAGR > 15% in BOTH first-half AND second-half of history,
+#         IR positive in both halves (split-sample persistence),
+#         alpha > 5%.
+# Source pipeline: .temp/manager_analysis/scripts/ (2026-07-02 run).
+# Loader status: NOT auto-loaded by build_major_purchases.py default.
+#                Tier = "Other" unless elite_managers.load_tier_map is extended.
+
+CIK           Manager                                              n_qtrs  IR      CAGR    CAGR_h1  CAGR_h2  Alpha   MaxDD   Pos    Retained
+0001389875    Newbrook Capital Advisors LP                          51     1.54    26.1%   26.4%    25.9%    +16.1%  -23.4%  21     79%
+0001714267    Thames Capital Management LLC                         33     1.34    24.2%   31.4%    17.8%    +14.7%  -26.1%  31     80%
+0001387322    Whale Rock Capital Management LLC                     51     1.02    33.2%   36.5%    30.0%    +23.1%  -44.4%  35     86%
+0001441843    EMS Capital LP                                        34     0.86    23.2%   23.4%    23.0%    +11.2%  -19.4%  29     84%
+0001611613    Hitchwood Capital Management LP                       33     0.86    21.8%   20.3%    23.3%    +14.8%  -41.1%  35     78%
+0001301050    Shannon River Fund Management LLC                     51     0.81    22.6%   19.4%    25.7%    +12.5%  -32.4%  29     80%
+0001662906    Atalan Capital Partners, LP                           41     0.79    18.7%   22.5%    15.2%    +8.2%   -37.5%  12     90%
+0001697591    CAS Investment Partners, LLC                          33     0.78    36.4%   48.4%    26.0%    +26.9%  -67.6%  5      100%
+0001559706    Slate Path Capital LP                                 51     0.68    20.6%   19.0%    22.2%    +10.5%  -33.0%  25     86%
+0001081198    Cypress Funds LLC                                     50     0.66    18.8%   18.9%    18.6%    +8.1%   -44.9%  16     90%
+0001569049    Light Street Capital Management, LLC                  51     0.66    24.1%   25.5%    22.7%    +14.0%  -60.6%  27     81%
+0001631014    AltaRock Partners LLC                                 45     0.65    15.3%   15.1%    15.5%    +6.3%   -26.3%  8      100%
+0001732768    Lingotto Investment Management LLP                    33     0.64    23.0%   21.2%    24.6%    +13.4%  -33.8%  15     99%
+0001061165    Lone Pine Capital LLC                                 51     0.64    18.1%   15.4%    20.7%    +8.0%   -38.1%  32     86%
+0001384982    Columbus Hill Capital Management, L.P.                51     0.60    17.6%   15.5%    19.6%    +7.5%   -25.8%  30     86%
+0001532262    Greenbrier Partners Capital Management, LLC           51     0.60    15.5%   15.7%    15.3%    +5.4%   -28.2%  16     100%
+0001582090    Sachem Head Capital Management LP                     48     0.59    16.6%   15.6%    17.7%    +7.7%   -40.8%  13     83%
+0001510940    ACK Asset Management LLC                              51     0.59    18.6%   18.8%    18.5%    +8.6%   -37.9%  25     82%
+0001543170    Spruce House Investment Management LLC                44     0.56    23.3%   23.5%    23.1%    +14.8%  -84.2%  8      100%
+0001656456    Appaloosa LP                                          40     0.55    17.7%   15.6%    20.0%    +7.1%   -26.7%  38     94%
+0001503174    SRS Investment Management, LLC                        51     0.51    19.0%   18.1%    19.9%    +8.9%   -38.3%  21     96%
+0001421669    3G Capital Partners LP                                51     0.49    20.5%   15.3%    25.7%    +10.4%  -62.2%  16     75%
+0001535839    Schwab Charitable Fund                                33     0.44    16.5%   16.3%    16.8%    +7.0%   -75.5%  40     100%
