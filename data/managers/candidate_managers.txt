@@ -22,6 +22,7 @@ GLC       0001766504     Josh Tarasoff (Greenlea Lane Capital Management LLC)
 GLC       0001413048     Josh Tarasoff (Greenlea Lane Capital Partners LP)
 HC        0001709323     Li Lu (Himalaya Capital Management)
 psc       0001336528     Bill Ackman (Pershing Square Capital Management)
+psc       0002026053     Bill Ackman (Pershing Square Inc., successor filer 2026Q2+)
 CAS       0001697591     Clifford Sosin (CAS Investment Partners)
 SAM       0001649339     Michael Burry (Scion Asset Management)
 

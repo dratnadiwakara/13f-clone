@@ -15,6 +15,14 @@ signal_thresholds:
   add_shares_ratio: 1.5
   start_quarter: 2018Q1
 
+# CIK succession: a manager reorganizing under a new filing entity gets a new
+# CIK, and the old one goes 13F-NT. Holdings from the old CIK are remapped to
+# the new one at load time so purchase history and the HC lookback flow across
+# the transition (first case: Pershing Square Capital Management LP
+# 0001336528 -> Pershing Square Inc. 0002026053, 2026Q2).
+cik_successors:
+  "0001336528": "0002026053"
+
 universe:
   active_filer_trailing_qtrs: 8
   active_filer_min_filings: 1

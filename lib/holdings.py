@@ -46,6 +46,7 @@ def _read_base(provisional: list[str] | None,
     the sidecar side, so the authoritative rows always win.
     """
     df = pd.read_parquet(config.path("holdings_parquet"), columns=columns)
+    df = _apply_successors(df)
     if not provisional:
         return df
     extra = load_provisional(provisional)
@@ -55,7 +56,18 @@ def _read_base(provisional: list[str] | None,
     overlap = sorted(set(provisional) & already)
     if overlap:
         extra = extra[~extra["quarter"].isin(overlap)]
+    extra = _apply_successors(extra)
     return pd.concat([df, extra], ignore_index=True) if len(extra) else df
+
+
+def _apply_successors(df: pd.DataFrame) -> pd.DataFrame:
+    """Remap predecessor CIKs to their successor (config: cik_successors) so a
+    manager's filing history is continuous across an entity reorganization."""
+    succ = config.load().get("cik_successors") or {}
+    if succ and "cik" in df.columns:
+        df = df.copy()
+        df["cik"] = df["cik"].replace(succ)
+    return df
 
 
 def load_holdings(ciks: list[str] | None = None,

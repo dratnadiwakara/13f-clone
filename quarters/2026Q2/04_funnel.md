@@ -1,6 +1,6 @@
 # 2026Q2 — HC ∩ Magic Formula funnel
 
-- Data mode: **PROVISIONAL** (coverage 100%)
+- Data mode: **PROVISIONAL** (coverage 103%)
 - Cutoff: 2026-08-19
 - HC rule: >= 10% bought over trailing 6Q
 - MF: rank-only (no pctile filter), top 7
@@ -8,9 +8,9 @@
 - MF universe ranked: 3,740 names
 - Macro: S&P PE 29.6, gate ACTIVE (block > $1,624bn cap)
 
-## Portfolio (6 names)
+## Portfolio (7 names)
 
-**PDD**, **BKNG**, **MOH**, **MA**, **APP**, **UNP**
+**PDD**, **BKNG**, **MOH**, **MA**, **UBER**, **META**, **APP**
 
 ## Funnel — every HC name
 
@@ -21,11 +21,13 @@
 | BKNG | 13.8% | PASS | 0.169 | +17% |  | SELECTED |
 | MOH | 12.4% | PASS | 0.172 | -12% |  | SELECTED |
 | MA | 14.0% | PASS | 0.240 | +6% |  | SELECTED |
+| UBER | 13.9% | PASS | 0.299 | +7% |  | SELECTED |
 | WHR | 11.2% | FAIL | 0.301 | -48% |  | CUT: quant (pass_leverage,pass_maturity_cliff,pass_quality_gate,pass_revenue) |
+| META | 11.4% | PASS | 0.358 | -17% |  | SELECTED |
 | APP | 12.1% | PASS | 0.381 | -22% |  | SELECTED |
 | STX | 12.1% | FAIL | 0.383 | +893% | Y | CUT: quant (pass_revenue) |
-| MSFT | 10.2% | PASS | 0.386 | +30% |  | BLOCKED: macro (mkt_cap_bn=3586>1624_5pct_gdp) |
-| UNP | 11.2% | PASS | 0.429 | +30% |  | SELECTED |
+| MSFT | 12.7% | PASS | 0.386 | +30% |  | CUT: rank > top 7 |
+| UNP | 11.2% | PASS | 0.429 | +30% |  | CUT: rank > top 7 |
 | CVNA | 13.9% | PASS | 0.498 | +68% |  | CUT: rank > top 7 |
 | SNPS | 12.5% | FAIL | 0.534 | -10% |  | CUT: quant (pass_clean_earnings,pass_leverage,pass_quality_gate) |
 | IWF | 12.2% | FAIL | — | +37% |  | CUT: quant (pass_etf_exclude) |
@@ -63,11 +65,23 @@
 - First buy in window: 2025Q1 — runup +6% since 2025Q1
 - Failed quant flags: none
 
+### UBER
+- Managers: Pershing Square Capital Management, L.P. (13.9%)
+- Fundamentals as of: 2025-12-31 (Compustat)
+- First buy in window: 2025Q1 — runup +7% since 2025Q1
+- Failed quant flags: none
+
 ### WHR
 - Managers: RWWM, Inc. (11.2%)
 - Fundamentals as of: 2025-12-31 (Compustat)
 - First buy in window: 2025Q3 — runup -48% since 2025Q3
 - Failed quant flags: pass_leverage,pass_maturity_cliff,pass_quality_gate,pass_revenue
+
+### META
+- Managers: Pershing Square Capital Management, L.P. (11.4%)
+- Fundamentals as of: 2025-12-31 (Compustat)
+- First buy in window: 2025Q4 — runup -17% since 2025Q4
+- Failed quant flags: none
 
 ### APP
 - Managers: Dorsey Asset Management, LLC (12.1%)
@@ -82,7 +96,7 @@
 - Failed quant flags: pass_revenue
 
 ### MSFT
-- Managers: ALTAROCK PARTNERS LP (10.2%)
+- Managers: Pershing Square Capital Management, L.P. (12.7%); ALTAROCK PARTNERS LP (10.2%)
 - Fundamentals as of: 2025-06-30 (Compustat)
 - First buy in window: 2025Q1 — runup +30% since 2025Q1
 - Failed quant flags: none

@@ -277,6 +277,9 @@ loss_year, cash_conversion, quality_gate, franchise — is the defensible
 - **Matching book size via lower thresholds** (1q/3%, 1q/5%, 2q/5%) — all
   1–3pt worse full-period.
 - **Two-sided price bands** — dominated by the one-sided cap.
+- **Holder-conviction HC** — §8; adds consensus mega-caps, halves the
+  holdout at 10%; the flattering 20% version is appreciation-driven
+  hindsight, not conviction.
 - **Archetype gates for unclear/cyclical** — §7; block the compounders and
   trough-recovery names the strategy exists to find. Shipped disabled.
 - **Screen simplification (Q-only or EQ)** — §7; train data cannot separate

@@ -1,17 +1,17 @@
 {
   "quarter": "2026Q2",
   "source": "EDGAR 13F-HR individual filings (PROVISIONAL)",
-  "generated_at": "2026-08-20T16:47:40.736485+00:00",
+  "generated_at": "2026-08-20T17:08:27.848109+00:00",
   "period_end": "2026-06-30",
   "filing_deadline": "2026-08-14",
   "value_units": "raw US dollars (per-filer thousands->dollars normalised)",
-  "n_requested": 50,
+  "n_requested": 51,
   "n_expected": 38,
   "expected_basis": "filed 2026Q1 per authoritative parquet",
-  "n_filed": 38,
+  "n_filed": 39,
   "n_missing": 12,
   "n_failed": 0,
-  "total_rows": 827,
+  "total_rows": 842,
   "complete": false,
   "missing_expected_ciks": [
     "0001336528"
@@ -221,6 +221,22 @@
       "total_value_usd": 0,
       "amendment_flag": "N",
       "note": "",
+      "error": ""
+    },
+    {
+      "cik": "0002026053",
+      "manager_name": "PERSHING SQUARE INC.",
+      "status": "filed",
+      "expected": false,
+      "form": "13F-HR",
+      "accession": "0001172661-26-003790",
+      "filing_date": "2026-08-14",
+      "n_positions": 15,
+      "unit_note": "raw_dollars",
+      "value_scale": 1,
+      "total_value_usd": 19465692772,
+      "amendment_flag": "N",
+      "note": "original",
       "error": ""
     },
     {
