@@ -2,8 +2,11 @@
 
 Strategies:
   SPY   — benchmark
-  HC    — conviction >= 5% + quant pass, equal weight
-  TOP7  — production rule: HC ∩ quant ∩ MF pctile <= cutoff, top N by pctile
+  HC    — conviction >= bands.hc_min_weight + quant pass, equal weight
+  PROD  — production rule: HC (>= 10% over trailing 6Q) ∩ quant, ranked by MF
+          percentile (rank-only unless mf.pctile_cutoff is set), price-runup
+          cap, top mf.top_n, macro mega-cap gate (blocked slots not
+          backfilled), 20% sizing cap
 
 DCA $1,000/month on the 20th, equal weight across the active set, no sells.
 Screen history: backtest/cache/screen_history.csv (rebuild with
@@ -18,12 +21,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from scipy.optimize import brentq
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from lib import config, ranks  # noqa: E402
+from lib import config, macro, ranks  # noqa: E402
 from lib.screen import derive_flags  # noqa: E402
 
 CACHE = Path(__file__).resolve().parent / "cache"
@@ -80,6 +84,38 @@ def current_quarter(d: pd.Timestamp, quarters: list[str]) -> str | None:
 
 # ---------- data ----------
 
+def add_hc_windows(scr: pd.DataFrame, lookback: int) -> pd.DataFrame:
+    """Derive hc_{lookback}q and first_buy_quarter from the raw incremental
+    purchase values, so a cache built under a different bands.hc_lookback_qtrs
+    still works. Same window logic as lib/bands.add_hc_alt."""
+    scr = scr.copy()
+    scr["cik"] = scr["cik"].astype(str).str.zfill(10)
+    scr["qidx"] = (scr["quarter"].str[:4].astype(int) * 4
+                   + scr["quarter"].str[-1].astype(int) - 1)
+    cum = np.zeros(len(scr))
+    first = np.full(len(scr), np.nan)
+    fill, order = 0, []
+    for _, g in scr.groupby(["cik", "cusip"], sort=False):
+        g = g.sort_values("qidx")
+        qi = g["qidx"].to_numpy()
+        inc = g["incremental_value_thousands"].fillna(0).to_numpy()
+        order.append(g.index.to_numpy())
+        for j, q in enumerate(qi):
+            win = (qi >= q - (lookback - 1)) & (qi <= q)
+            cum[fill + j] = inc[win].sum()
+            bought = win & (inc > 0)
+            if bought.any():
+                first[fill + j] = qi[bought].min()
+        fill += len(g)
+    idx = np.concatenate(order)
+    scr[f"hc_{lookback}q"] = (pd.Series(cum, index=idx).reindex(scr.index)
+                              / scr["portfolio_value_thousands"])
+    fb = pd.Series(first, index=idx).reindex(scr.index)
+    scr["first_buy_quarter"] = fb.map(
+        lambda v: None if v != v else f"{int(v) // 4}Q{int(v) % 4 + 1}")
+    return scr
+
+
 def load_screen() -> pd.DataFrame:
     scr = pd.read_csv(CACHE / "screen_history.csv",
                       dtype={"quarter": str, "cik": str, "gvkey": str},
@@ -90,15 +126,76 @@ def load_screen() -> pd.DataFrame:
         scr = pd.concat([scr, flags.loc[:, ~flags.columns.isin(scr.columns)]], axis=1)
         scr["passes_quant"] = scr[[c for c in scr.columns
                                    if c.startswith("pass_")]].all(axis=1)
-    return scr
+    return add_hc_windows(scr, config.load()["bands"].get("hc_lookback_qtrs", 4))
 
 
-def build_selectors(scr: pd.DataFrame):
+def _px(plut, t, d):
+    s = plut.get(t.replace(".", "-"))
+    if s is None or s.empty:
+        return None
+    prior = s[s.index <= d]
+    return float(prior.iloc[-1]) if len(prior) else None
+
+
+def macro_blocks(scr, fund, plut, quarters) -> dict[str, set]:
+    """{quarter: tickers over the macro mega-cap threshold}. PIT cap is
+    Compustat prcc_f*csho at the fiscal datadate, rolled forward to the
+    formation date by price return. Empty when the gate is dormant."""
+    cfg = config.load()["macro"]
+    pe_cut, frac = cfg["sp500_pe_threshold"], cfg["mktcap_over_gdp_threshold"]
+    t2g_all = {q: g.dropna(subset=["gvkey"]).set_index("ticker")["gvkey"].to_dict()
+               for q, g in scr.groupby("quarter")}
+    out = {}
+    for q in quarters:
+        f = ranks.formation_date(q)
+        gdp_bn, sp_pe = macro.macro_at(f)
+        if not (sp_pe > pe_cut) or gdp_bn != gdp_bn:     # NaN-safe: dormant
+            out[q] = set()
+            continue
+        thr_bn, rk = frac * gdp_bn, ranks.rank_quarter(fund, q).set_index("gvkey")
+        blocked = set()
+        for t, g in t2g_all.get(q, {}).items():
+            if g not in rk.index:
+                continue
+            row = rk.loc[g]
+            cap_m = float(row["mkt_cap"])
+            p_now, p_then = _px(plut, t, f), _px(plut, t, pd.Timestamp(row["datadate"]))
+            if p_now and p_then and p_then > 0:
+                cap_m *= p_now / p_then
+            if cap_m / 1000.0 > thr_bn:
+                blocked.add(t)
+        out[q] = blocked
+    return out
+
+
+def price_runups(scr, plut, hc_col, hc_min) -> dict:
+    """{(quarter, ticker): runup} since the end of the earliest quarter in the
+    lookback window where a qualifying manager bought (lib/pricecap's rule).
+    Missing from the dict = no usable price history = passes the cap."""
+    elig = scr[(scr[hc_col].fillna(0) >= hc_min) & scr["passes_quant"]
+               & scr["first_buy_quarter"].notna()]
+    out = {}
+    for (q, t), g in elig.groupby(["quarter", "ticker"]):
+        fq = sorted(g["first_buy_quarter"].dropna())[0]   # earliest across managers
+        p_then = _px(plut, t, ranks.quarter_end(fq))
+        p_now = _px(plut, t, ranks.formation_date(q))
+        if p_then and p_now and p_then > 0:
+            out[(q, t)] = p_now / p_then - 1.0
+    return out
+
+
+def build_selectors(scr: pd.DataFrame, plut=None):
+    """plut (ticker -> close series) enables the price-runup cap and the macro
+    gate; omit it for a bare HC/MF run."""
     cfg = config.load()
     hc_min = cfg["bands"]["hc_min_weight"]
+    lookback = cfg["bands"].get("hc_lookback_qtrs", 4)
     mf = cfg["mf"]
+    cut = mf.get("pctile_cutoff")
+    max_runup = cfg.get("price_cap", {}).get("max_runup")
     quarters = sorted(scr["quarter"].unique())
 
+    hc_col = f"hc_{lookback}q"
     print("building MF ranks per quarter...")
     fund = ranks.load_universe()
     pct = {q: ranks.rank_quarter(fund, q).set_index("gvkey")["mf_pct"].to_dict()
@@ -107,19 +204,28 @@ def build_selectors(scr: pd.DataFrame):
     t2g = {q: g.dropna(subset=["gvkey"]).set_index("ticker")["gvkey"].to_dict()
            for q, g in scr.groupby("quarter")}
 
+    blocks = macro_blocks(scr, fund, plut, quarters) if plut is not None else {}
+    runups = price_runups(scr, plut, hc_col, hc_min) if plut is not None else {}
+
     def hc(q):
         rows = scr[(scr["quarter"] == q)
-                   & (scr["hc_alt_weight"].fillna(0) >= hc_min)
+                   & (scr[hc_col].fillna(0) >= hc_min)
                    & scr["passes_quant"]]
         return sorted(rows["ticker"].dropna().unique())
 
-    def top7(q):
-        cand = [(t, pct[q][t2g[q][t]]) for t in hc(q)
-                if t in t2g[q] and t2g[q][t] in pct[q]
-                and pct[q][t2g[q][t]] <= mf["pctile_cutoff"]]
-        return sorted(t for t, _ in sorted(cand, key=lambda x: x[1])[:mf["top_n"]])
+    def prod(q):
+        cand = hc(q)
+        if max_runup is not None:            # price cap, before the top_n cut
+            cand = [t for t in cand
+                    if runups.get((q, t)) is None or runups[(q, t)] <= max_runup]
+        scored = [(t, pct[q][t2g[q][t]]) for t in cand
+                  if t in t2g[q] and t2g[q][t] in pct[q]
+                  and (cut is None or pct[q][t2g[q][t]] <= cut)]
+        top = [t for t, _ in sorted(scored, key=lambda x: x[1])[:mf["top_n"]]]
+        blk = blocks.get(q, ())              # macro gate, no backfill
+        return sorted(t for t in top if t not in blk)
 
-    return quarters, {"SPY": lambda q: ["SPY"], "HC": hc, "TOP7": top7}
+    return quarters, {"SPY": lambda q: ["SPY"], "HC": hc, "PROD": prod}
 
 
 def run_window(select, quarters, plut, start, end, max_w=None) -> dict:
@@ -166,10 +272,10 @@ def run_window(select, quarters, plut, start, end, max_w=None) -> dict:
 def main():
     OUT.mkdir(exist_ok=True)
     scr = load_screen()
-    quarters, selectors = build_selectors(scr)
     prices = pd.read_parquet(CACHE / "prices.parquet")
     plut = {t: g.set_index("date")["close"].sort_index()
             for t, g in prices.groupby("ticker")}
+    quarters, selectors = build_selectors(scr, plut=plut)
 
     max_w = config.load()["sizing"]["max_weight"]
     rows = []

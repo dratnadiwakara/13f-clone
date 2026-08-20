@@ -3,9 +3,10 @@
     python run_quarter.py 2026Q1 [--no-refresh]
 
 Pipeline: 13F freshness (bulk append, else provisional at >=75% manager
-coverage) -> HC set (trailing-4Q conviction >= 5%) -> EDGAR fundamentals patch
-for stale names -> quant screen -> global magic-formula percentile -> keep
-<= 40%, top 7 by percentile -> macro mega-cap gate.
+coverage) -> HC set (trailing-6Q conviction >= 10%) -> EDGAR fundamentals
+patch for stale names -> quant screen -> global magic-formula percentile
+(rank-only by default; mf.pctile_cutoff adds a hard filter) -> price-runup
+cap -> top 7 by percentile -> macro mega-cap gate.
 
 Outputs to quarters/{Q}/: 01_screen.csv, 02_ranks.parquet, 03_portfolio.txt,
 04_funnel.md. The funnel lists every HC name with the exact reason it was
@@ -26,7 +27,7 @@ sys.path.insert(0, str(REPO))
 
 from lib import (  # noqa: E402
     bands, config, data_access as da, holdings as h_mod,
-    macro, managers, ranks, screen as s_mod, signals,
+    macro, managers, pricecap, ranks, screen as s_mod, signals,
 )
 from lib.screen import derive_flags  # noqa: E402
 
@@ -97,7 +98,8 @@ def run_quant(hc_rows: pd.DataFrame, cutoff: str, outdir: Path) -> pd.DataFrame:
         scr = pd.concat([scr, flags.loc[:, ~flags.columns.isin(scr.columns)]], axis=1)
         scr["passes_quant"] = scr[[c for c in scr.columns
                                    if c.startswith("pass_")]].all(axis=1)
-    scr = scr.merge(hc_rows[["cik", "quarter", "cusip", "hc_alt_weight"]],
+    scr = scr.merge(hc_rows[["cik", "quarter", "cusip", "hc_alt_weight",
+                             "first_buy_quarter"]],
                     on=["cik", "quarter", "cusip"], how="left", suffixes=("", "_hc"))
     if "hc_alt_weight" not in scr.columns and "hc_alt_weight_hc" in scr.columns:
         scr["hc_alt_weight"] = scr["hc_alt_weight_hc"]
@@ -142,7 +144,8 @@ def patch_stale(cand: pd.DataFrame, ranked: pd.DataFrame, cutoff: pd.Timestamp) 
 
 # ---------- funnel ----------
 
-def build_funnel(q, scr, ranked, overrides, macro_res, mode, coverage, outdir):
+def build_funnel(q, scr, ranked, overrides, macro_res, price_res, mode,
+                 coverage, outdir):
     cfg = config.load()["mf"]
     pct_map = ranked.set_index("gvkey")["mf_pct"].to_dict()
     dd_map = ranked.set_index("gvkey")["datadate"].to_dict()
@@ -159,14 +162,25 @@ def build_funnel(q, scr, ranked, overrides, macro_res, mode, coverage, outdir):
         mgrs = "; ".join(f"{r.manager_name} ({r.hc_alt_weight:.1%})"
                          for r in grp.sort_values("hc_alt_weight", ascending=False)
                          .itertuples() if pd.notna(r.manager_name))
+        pr = price_res.get(tkr, {})
+        fbq = grp["first_buy_quarter"].dropna()
         per.append({"ticker": tkr, "gvkey": gvkey, "conviction": best["hc_alt_weight"],
                     "managers": mgrs, "quant": quant, "failed_flags": ",".join(failed),
                     "mf_pct": pct, "edgar_patched": bool(ov),
+                    "first_buy_quarter": fbq.min() if len(fbq) else "",
+                    "runup": pr.get("runup"), "runup_reason": pr.get("reason", ""),
+                    "price_blocked": bool(pr.get("blocked")),
                     "datadate": str(ov["end_date"] if ov else dd_map.get(gvkey, ""))[:10]})
     df = pd.DataFrame(per).sort_values("mf_pct", na_position="last").reset_index(drop=True)
 
-    # outcomes
-    eligible = df[(df["quant"]) & df["mf_pct"].notna() & (df["mf_pct"] <= cfg["pctile_cutoff"])]
+    # outcomes. Stage order: quant -> MF (rank, plus optional hard cutoff) ->
+    # price-runup cap (before top_n, so survivors backfill) -> top_n ->
+    # macro gate (after top_n, blocked slots are NOT backfilled).
+    cut = cfg.get("pctile_cutoff")
+    eligible = df[(df["quant"]) & df["mf_pct"].notna()]
+    if cut is not None:
+        eligible = eligible[eligible["mf_pct"] <= cut]
+    eligible = eligible[~eligible["price_blocked"]]
     top = eligible.head(cfg["top_n"])["ticker"].tolist()
     blocked = {t for t in top if macro_res["_by_ticker"].get(t, {}).get("macro_blocked")}
     selected = [t for t in top if t not in blocked]
@@ -178,8 +192,10 @@ def build_funnel(q, scr, ranked, overrides, macro_res, mode, coverage, outdir):
             return f"CUT: quant ({r['failed_flags']})"
         if pd.isna(r["mf_pct"]):
             return "NO DATA: not in MF universe"
-        if r["mf_pct"] > cfg["pctile_cutoff"]:
-            return f"CUT: pctile {r['mf_pct']:.2f} > {cfg['pctile_cutoff']:.2f}"
+        if cut is not None and r["mf_pct"] > cut:
+            return f"CUT: pctile {r['mf_pct']:.2f} > {cut:.2f}"
+        if r["price_blocked"]:
+            return f"CUT: price ({r['runup_reason']})"
         if r["ticker"] in blocked:
             return f"BLOCKED: macro ({macro_res['_by_ticker'][r['ticker']]['macro_reason']})"
         if r["ticker"] in selected:
@@ -189,27 +205,38 @@ def build_funnel(q, scr, ranked, overrides, macro_res, mode, coverage, outdir):
     df["outcome"] = df.apply(outcome, axis=1)
 
     st = macro_res["_state"]
+    bcfg = config.load()["bands"]
+    max_runup = config.load().get("price_cap", {}).get("max_runup")
     lines = [f"# {q} — HC ∩ Magic Formula funnel", "",
              f"- Data mode: **{mode.upper()}**" + (f" (coverage {coverage:.0%})" if coverage else ""),
              f"- Cutoff: {ranks.formation_date(q).date()}",
+             f"- HC rule: >= {bcfg['hc_min_weight']:.0%} bought over trailing "
+             f"{bcfg.get('hc_lookback_qtrs', 4)}Q",
+             f"- MF: {'rank-only (no pctile filter)' if cut is None else f'pctile <= {cut:.2f}'}"
+             f", top {cfg['top_n']}",
+             f"- Price cap: " + ("disabled" if max_runup is None
+                                 else f"drop runup > {max_runup:+.0%} since first buy"),
              f"- MF universe ranked: {len(ranked):,} names",
              f"- Macro: S&P PE {st['sp_pe_ttm']:.1f}, gate "
              f"{'ACTIVE (block > $' + format(st['threshold_bn'], ',.0f') + 'bn cap)' if st['gate_active'] else 'dormant'}",
              "", f"## Portfolio ({len(selected)} names)", "",
              ", ".join(f"**{t}**" for t in selected), "",
              "## Funnel — every HC name", "",
-             "| Ticker | Conviction | Quant | MF pctile | EDGAR | Outcome |",
-             "|---|---|---|---|---|---|"]
+             "| Ticker | Conviction | Quant | MF pctile | Runup | EDGAR | Outcome |",
+             "|---|---|---|---|---|---|---|"]
     for r in df.itertuples():
         pct = f"{r.mf_pct:.3f}" if pd.notna(r.mf_pct) else "—"
+        run = f"{r.runup:+.0%}" if r.runup is not None and pd.notna(r.runup) else "—"
         lines.append(f"| {r.ticker} | {r.conviction:.1%} | {'PASS' if r.quant else 'FAIL'} "
-                     f"| {pct} | {'Y' if r.edgar_patched else ''} | {r.outcome} |")
+                     f"| {pct} | {run} | {'Y' if r.edgar_patched else ''} | {r.outcome} |")
     lines += ["", "## Detail", ""]
     for r in df.itertuples():
         lines += [f"### {r.ticker}",
                   f"- Managers: {r.managers}",
                   f"- Fundamentals as of: {r.datadate}"
                   + (" (EDGAR companyfacts)" if r.edgar_patched else " (Compustat)"),
+                  f"- First buy in window: {r.first_buy_quarter or '—'}"
+                  + (f" — {r.runup_reason}" if r.runup_reason else ""),
                   f"- Failed quant flags: {r.failed_flags or 'none'}", ""]
     (outdir / "04_funnel.md").write_text("\n".join(lines), encoding="utf-8")
     # Position sizing: equal weight, capped at sizing.max_weight per ticker;
@@ -260,8 +287,18 @@ def main():
     hc_tickers = sorted(scr["ticker"].dropna().unique())
     macro_res = macro.evaluate(hc_tickers, cutoff)
 
+    print("[price] runup vs managers' first buy...")
+    first_buy = (scr.dropna(subset=["ticker", "first_buy_quarter"])
+                 .groupby("ticker")["first_buy_quarter"].min().to_dict())
+    price_res = pricecap.evaluate(first_buy, cutoff)
+    n_blk = sum(1 for v in price_res.values() if v["blocked"])
+    if n_blk:
+        print(f"[price] {n_blk} candidate(s) over the runup cap: "
+              + ", ".join(f"{t} ({v['runup']:+.0%})"
+                          for t, v in sorted(price_res.items()) if v["blocked"]))
+
     selected, funnel = build_funnel(q, scr, ranked, overrides, macro_res,
-                                    mode, coverage, outdir)
+                                    price_res, mode, coverage, outdir)
     print(f"\n{q} portfolio ({mode}): {', '.join(selected)}")
     print(f"funnel: {outdir / '04_funnel.md'}")
 

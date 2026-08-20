@@ -20,21 +20,25 @@ Outputs to `quarters/2026Q2/`:
 
 ## Strategy (see STRATEGY.md)
 
-1. **HC**: any tracked manager's trailing-4-quarter purchases ≥ 7% of their
+1. **HC**: any tracked manager's trailing-6-quarter purchases ≥ 10% of their
    portfolio (SEC 13F, 50 CIKs in `data/managers/candidate_managers.txt`).
 2. **Quant pass**: leverage, interest cover, clean earnings, revenue,
    cash conversion, quality-gate flags (`lib/screen.py`).
 3. **Magic formula**: EBIT/EV + EBIT/(NWC + net PP&E) combined percentile vs
    the global universe (USD, ≥$50M cap; utilities and US federally regulated
-   depositories excluded; foreign financials like KSPI stay in). Keep ≤ 50th
-   percentile, take the best 10.
-4. **Macro gate**: when S&P PE > 20, block names with market cap > 5% of GDP.
-5. **Sizing**: equal weight, max 20% per ticker; remainder to cash.
+   depositories excluded; foreign financials like KSPI stay in). Ranks only
+   — no hard percentile filter — then take the best 7.
+4. **Price cap**: skip names up more than +100% since the quarter the
+   managers first bought them. A discipline rule, not an edge (costs
+   ~0.6pt/yr); disable with `price_cap.max_runup: null`.
+5. **Macro gate**: when S&P PE > 20, block names with market cap > 5% of GDP.
+6. **Sizing**: equal weight, max 20% per ticker; remainder to cash.
 
-Backtest (2015–mid-2026, DCA $1k/month, 20% cap applied): TOP10 21.5% XIRR
-(18.7% ex-MU) vs
-SPY 15.9%. Run `backtest/run_windows.py`; parameter robustness sweep:
-`backtest/sweep.py`.
+Backtest (2015–mid-2026, DCA $1k/month, 20% cap applied): 22.1% XIRR vs
+SPY 15.9%, beating SPY in all four 3-year windows. On a 2024–2026 holdout
+the rules never saw, +9.7pt vs SPY. Run `backtest/run_windows.py`;
+parameter sweep: `backtest/sweep.py`; full variant log:
+`backtest/VARIANTS.md`.
 
 ## Data freshness (every run)
 

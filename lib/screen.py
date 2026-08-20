@@ -102,6 +102,7 @@ def per_gvkey_metrics(g: pd.DataFrame, as_of: pd.Timestamp) -> dict:
 
     for c in ["gsector", "gind", "sic", "indfmt", "at", "dptc", "dptb",
               "ivaeq", "intan", "gdwl", "ppent", "invt", "rect", "che",
+              "act", "lct", "wcap",
               "seq", "ceq", "ceqt", "mib", "dltt", "dlc", "dt",
               "dd1", "dd2", "ni", "ib", "revt", "sale", "cogs", "xsga",
               "oibdp", "oiadp", "ebit", "ebitda", "dp", "xint", "pi", "txt",
@@ -190,6 +191,26 @@ def per_gvkey_metrics(g: pd.DataFrame, as_of: pd.Timestamp) -> dict:
     out["roic_pre_tangible_3y"] = (ebit_s / cap_tangible_s).tail(3).mean()
     out["roa_3y_avg"] = roa_s.tail(3).mean()
 
+    # Cash-free return on capital, identical to lib/ranks.roc. Used to gate
+    # the "unclear" bucket, whose balance sheets are mostly cash: the standard
+    # roic_pre_* denominator subtracts cash and collapses toward zero there.
+    ebit_use = last.get("ebit")
+    if pd.isna(ebit_use) or ebit_use is None:
+        ebit_use = last.get("oiadp")
+    act_v, lct_v = last.get("act"), last.get("lct")
+    nwc = (act_v - lct_v) if (pd.notna(act_v) and pd.notna(lct_v)) else last.get("wcap")
+    cap_emp = (0 if pd.isna(nwc) or nwc is None else max(float(nwc), 0.0)) + (last.get("ppent") or 0)
+    out["cap_employed"] = cap_emp
+    out["roc_gb"] = (safe_div(ebit_use, cap_emp)
+                     if (cap_emp > 0 and pd.notna(ebit_use)) else np.nan)
+
+    # Mid-cycle economics: a spot ROIC on a cyclical measures where the cycle
+    # is, not business quality. 5y mean + count of profitable years instead.
+    out["roic_pre_5y"] = (ebit_s / cap_s).tail(5).mean()
+    ebit_tail = ebit_s.tail(5).dropna()
+    out["ebit_pos_yrs_5y"] = float((ebit_tail > 0).sum()) if len(ebit_tail) else np.nan
+    out["ebit_yrs_5y"] = float(len(ebit_tail))
+
     ebitda_v = last.get("ebitda") or last.get("oibdp") or 0
     net_debt = dltt_v + dlc_v - che_v
     out["net_debt"] = net_debt
@@ -224,7 +245,56 @@ def per_gvkey_metrics(g: pd.DataFrame, as_of: pd.Timestamp) -> dict:
     return out
 
 
-def quality_gate(arche: str, m: dict) -> tuple[bool, str]:
+GATED_ARCHETYPES = ("trad-ops", "asset-light", "unclear", "cyclical")
+
+
+def _gate_cfg(arche: str) -> dict:
+    return config.load().get("quality_gate", {}).get(arche, {})
+
+
+def quality_gate(arche: str, m: dict) -> tuple[bool | None, str]:
+    """Archetype-appropriate return-on-capital hurdle.
+
+    trad-ops / asset-light: original 2026-08 gate, missing data FAILS.
+    unclear / cyclical: added 2026-08. Missing data PASSES (returns None),
+    matching the rest of derive_flags; these buckets have thinner Compustat
+    coverage and a data-completeness filter is not what is wanted here.
+    None from any branch means "not evaluated" and derive_flags treats it as
+    a pass.
+    """
+    if arche == "unclear":
+        cfg = _gate_cfg("unclear")
+        if not cfg.get("enabled", False):
+            return None, "unclear_gate_disabled"
+        # Cash-heavy balance sheets: return on OPERATING capital (cash excluded
+        # from the denominator rather than netted out of it), plus a liveness
+        # test so a biotech burning its cash pile does not read as high-return.
+        roc = m.get("roc_gb")
+        fcf = m.get("fcf_3y_avg")
+        if pd.isna(roc):
+            return None, "unclear_no_roc_gb"
+        if roc < cfg["min_roc"]:
+            return False, f"roc_gb_{roc:.2f}<{cfg['min_roc']}"
+        if pd.notna(fcf) and fcf < cfg["min_fcf_3y_avg"]:
+            return False, f"fcf3y_{fcf:.0f}<{cfg['min_fcf_3y_avg']}"
+        return True, f"roc_gb_{roc:.2f}"
+    if arche == "cyclical":
+        cfg = _gate_cfg("cyclical")
+        if not cfg.get("enabled", False):
+            return None, "cyclical_gate_disabled"
+        # Survivability + mid-cycle economics, not spot profitability.
+        pos, yrs = m.get("ebit_pos_yrs_5y"), m.get("ebit_yrs_5y")
+        r5 = m.get("roic_pre_5y")
+        lev = m.get("debt_ebitda")
+        if pd.notna(pos) and pd.notna(yrs) and yrs >= cfg["min_years"]                 and pos < cfg["min_profitable_yrs"]:
+            return False, f"ebit_pos_{pos:.0f}of{yrs:.0f}<{cfg['min_profitable_yrs']}"
+        if pd.notna(r5) and r5 < cfg["min_roic_5y"]:
+            return False, f"roic5y_{r5:.2f}<{cfg['min_roic_5y']}"
+        if pd.notna(lev) and lev > cfg["max_debt_ebitda"]:
+            return False, f"debt_ebitda_{lev:.1f}>{cfg['max_debt_ebitda']}"
+        if pd.isna(r5) and pd.isna(pos):
+            return None, "cyclical_no_data"
+        return True, f"roic5y_{r5:.2f}" if pd.notna(r5) else "cyclical_pass"
     if arche == "trad-ops":
         r = m.get("roic_pre_3y")
         if pd.isna(r):
@@ -429,11 +499,11 @@ def run_screen(major_purchases: pd.DataFrame,
         out["archetype"] = arche
         out["archetype_reason"] = arche_reason
 
-        # Only trad-ops / asset-light have a well-defined quality gate. Others
-        # leave NaN so derive_flags treats it as pass-through (matches V2 where
-        # cyclical/utility/reit/holdco/unclear are routed to PARKED without a
-        # quality_gate evaluation).
-        if arche in ("trad-ops", "asset-light"):
+        # GATED_ARCHETYPES have a defined quality gate; reit / utility /
+        # holdco / bank leave NaN so derive_flags treats them as pass-through.
+        # (Utilities are excluded from the MF universe anyway, so they can
+        # never be selected regardless.)
+        if arche in GATED_ARCHETYPES:
             passed, qreason = quality_gate(arche, m)
             out["quality_gate_passed"] = passed
             out["quality_gate_reason"] = qreason

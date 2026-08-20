@@ -1,9 +1,14 @@
-"""Compute hc_alt_weight (trailing-4Q cumulative dollar-weight of buying by
-(cik, cusip)) and split screen rows into HC / MC bands.
+"""Compute hc_alt_weight (trailing-K-quarter cumulative dollar-weight of
+buying by (cik, cusip)) and split screen rows into HC / MC bands.
 
-hc_alt_weight sums incremental_value_thousands over trailing 4 quarters
-per (cik, cusip), divided by current portfolio_value_thousands. Uses
-dollar-cost basis of purchases — price appreciation alone never lifts it.
+hc_alt_weight sums incremental_value_thousands over the trailing
+bands.hc_lookback_qtrs quarters per (cik, cusip), divided by current
+portfolio_value_thousands. Uses dollar-cost basis of purchases — price
+appreciation alone never lifts it.
+
+first_buy_quarter is the earliest quarter inside that same window in which
+the manager actually added to the name; lib/pricecap.py measures the
+price runup from its quarter-end.
 
 HC: hc_alt_weight >= hc_min_weight AND passes_quant
 MC: mc_min_weight <= hc_alt_weight < hc_min_weight AND passes_quant
@@ -19,7 +24,21 @@ def _quarter_index(q: str) -> int:
     return int(q[:4]) * 4 + int(q[-1]) - 1
 
 
-def add_hc_alt(major_purchases: pd.DataFrame, screen: pd.DataFrame) -> pd.DataFrame:
+def _quarter_label(qidx: float) -> str | None:
+    if qidx != qidx:                                    # NaN
+        return None
+    qi = int(qidx)
+    return f"{qi // 4}Q{qi % 4 + 1}"
+
+
+def add_hc_alt(major_purchases: pd.DataFrame, screen: pd.DataFrame,
+               lookback: int | None = None) -> pd.DataFrame:
+    """Adds cum_inc_value, hc_alt_weight and first_buy_quarter to `screen`.
+
+    lookback defaults to bands.hc_lookback_qtrs. cum_inc_value_4q is kept as
+    an alias when lookback == 4 so older caches/readers still resolve."""
+    if lookback is None:
+        lookback = config.load()["bands"].get("hc_lookback_qtrs", 4)
     mp = major_purchases.copy()
     mp["qidx"] = mp["quarter"].map(_quarter_index)
     mp["cik"] = mp["cik"].astype(str).str.zfill(10)
@@ -31,20 +50,31 @@ def add_hc_alt(major_purchases: pd.DataFrame, screen: pd.DataFrame) -> pd.DataFr
         qidx_arr = g["qidx"].to_numpy()
         inc_arr = g["incremental_value_thousands"].fillna(0).to_numpy()
         cum = np.zeros(len(g))
+        first = np.full(len(g), np.nan)
         for i, qi in enumerate(qidx_arr):
-            mask = (qidx_arr >= qi - 3) & (qidx_arr <= qi)
-            cum[i] = inc_arr[mask].sum()
+            window = (qidx_arr >= qi - (lookback - 1)) & (qidx_arr <= qi)
+            cum[i] = inc_arr[window].sum()
+            bought = window & (inc_arr > 0)
+            if bought.any():
+                first[i] = qidx_arr[bought].min()
         g = g.copy()
-        g["cum_inc_value_4q"] = cum
+        g["cum_inc_value"] = cum
+        g["first_buy_qidx"] = first
         rows.append(g)
 
     mp_aug = pd.concat(rows, ignore_index=True)
-    mp_aug["hc_alt_weight"] = mp_aug["cum_inc_value_4q"] / mp_aug["portfolio_value_thousands"]
+    mp_aug["hc_alt_weight"] = mp_aug["cum_inc_value"] / mp_aug["portfolio_value_thousands"]
+    mp_aug["first_buy_quarter"] = mp_aug["first_buy_qidx"].map(_quarter_label)
+    if lookback == 4:
+        mp_aug["cum_inc_value_4q"] = mp_aug["cum_inc_value"]
 
     screen = screen.copy()
     screen["cik"] = screen["cik"].astype(str).str.zfill(10)
     key = ["cik", "quarter", "cusip"]
-    aug = mp_aug[key + ["cum_inc_value_4q", "hc_alt_weight"]].drop_duplicates(key)
+    cols = ["cum_inc_value", "hc_alt_weight", "first_buy_quarter"]
+    if lookback == 4:
+        cols.append("cum_inc_value_4q")
+    aug = mp_aug[key + cols].drop_duplicates(key)
     return screen.merge(aug, on=key, how="left")
 
 

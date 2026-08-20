@@ -22,7 +22,13 @@ universe:
   active_filer_window_min: 3
 
 bands:
-  hc_min_weight: 0.07
+  # hc_alt_weight = purchases summed over the trailing hc_lookback_qtrs
+  # quarters / current portfolio value. 10% over 6 quarters set by the
+  # 2026-08 lookback sweep (see backtest/VARIANTS.md); threshold and lookback
+  # must move together — a longer window at a fixed threshold just lowers the
+  # effective bar and dilutes the book.
+  hc_min_weight: 0.10
+  hc_lookback_qtrs: 6
   mc_min_weight: 0.01
   mc_max_weight: 0.05
   carry_lookback_qtrs: 6
@@ -36,15 +42,20 @@ macro:
   live_mktcap_window_days: 7
   stale_days: 60
 
-# Magic-formula selection (final strategy: HC >= 7% conviction -> quant pass
-# -> MF percentile <= pctile_cutoff on the global universe -> top_n by
-# percentile -> macro gate). Parameters set by backtest/sweep.py robustness
-# sweep (2026-08): hc 7% / cutoff 0.50 / top 10 dominated the old
-# 5%/0.40/top-7 on raw XIRR, outlier-stripped XIRR, and worst-window excess.
+# Magic-formula selection (final strategy: HC >= 10% conviction over 6
+# quarters -> quant pass -> rank by MF percentile on the global universe ->
+# top_n -> price-runup cap -> macro gate). Parameters set by the 2026-08
+# lookback sweep (backtest/sweep.py, 640 variants, macro gate on), validated
+# on a 2024-2026 holdout it never saw: train rank 2/640, holdout +9.7pt vs
+# SPY. Full variant history and numbers: backtest/VARIANTS.md.
+#
+# pctile_cutoff: null means mf_pct is used to RANK only, not to filter — the
+# top_n cut does the selecting. Set a float to reinstate a hard percentile
+# filter (the pre-2026-08 rule was 0.50).
 mf:
   min_cap_musd: 50
-  pctile_cutoff: 0.50
-  top_n: 10
+  pctile_cutoff: null
+  top_n: 7
   filing_lag_days: 90
   max_age_days: 550
   # Greenblatt universe exclusions, per operator policy:
@@ -54,12 +65,48 @@ mf:
   exclude_gsector: [55]
   depository_sic: [6020, 6021, 6022, 6029, 6035, 6036, 6712]
 
+# Archetype-conditional quality gate (lib/screen.py::quality_gate).
+# trad-ops / asset-light thresholds are the original 2026-08 rule and are
+# still hardcoded there. The unclear and cyclical gates were added to close
+# the ungated-bucket hole (~4,600 of 10,695 screen rows); both ship DISABLED
+# until the holdout test in backtest/VARIANTS.md says otherwise.
+quality_gate:
+  unclear:
+    # Cash-heavy balance sheets. roc_gb is EBIT / (max(NWC,0) + net PP&E) --
+    # identical to lib/ranks.roc, i.e. cash is excluded from the denominator
+    # rather than netted out of it, which is what breaks roic_pre_* here.
+    enabled: false
+    min_roc: 0.15
+    min_fcf_3y_avg: 0.0
+  cyclical:
+    # Survivability + mid-cycle economics. Spot ROIC on a cyclical measures
+    # cycle position, not quality. Leverage bar is tighter than the universal
+    # pass_leverage (<= 5): 5x net debt/EBITDA at peak is ~15x at trough.
+    enabled: false
+    min_profitable_yrs: 3
+    min_years: 4
+    min_roic_5y: 0.10
+    max_debt_ebitda: 3.0
+
 # Position sizing: equal weight across the quarter's selections, but never
 # more than max_weight of the quarter's contribution in any one ticker.
 # Remainder stays in cash (deployed in later, fuller quarters). Backtested
 # ~0.3pt below uncapped full-period; adopted for single-name tail risk.
 sizing:
   max_weight: 0.20
+
+# Price-runup cap: drop a candidate whose price has risen more than
+# max_runup since the END of the earliest quarter, inside the HC lookback
+# window, in which a qualifying manager actually bought it. Applied BEFORE
+# the top_n cut, so survivors backfill the freed slots. Names with no usable
+# price history pass (missing data passes, as elsewhere).
+#
+# This is a BEHAVIOURAL constraint, not an edge: every threshold tested cost
+# return (backtest/VARIANTS.md). 1.00 is the knee — it binds on ~6% of
+# candidate-quarters and costs ~0.6pt/yr; tighter caps fall off a cliff
+# (0.50 costs ~1.8pt/yr and parks the book in cash). null disables it.
+price_cap:
+  max_runup: 1.00
 
 provisional:
   min_coverage: 0.75
