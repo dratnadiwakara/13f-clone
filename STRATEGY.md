@@ -106,4 +106,8 @@ The strategy beats the index in all four 3-year windows, with one month of force
 - **Signal lag.** 13F data is up to 135 days old at formation. The strategy is built on the persistence of manager conviction, not on speed.
 - **Screen power.** With ~5 names per quarter over 11 years, backtests cannot statistically distinguish nearby screen designs; the screen is retained on aggregate evidence and economic rationale, not per-filter proof.
 
+## Supplementary output: the watchlist
+
+Alongside each quarter's portfolio, the pipeline produces a research watchlist that is **not part of the strategy**. It starts from names tracked managers bought at 1–10% of their book — below the conviction threshold — keeps only those that pass the full quant screen and rank in the better half of the magic-formula universe, and then an AI reviewer (Claude) selects and ranks a handful in the order they merit further work as long-term investments. The mechanical filter is reproducible; the final selection and ranking are explicitly subjective, are labelled as such in each `05_watchlist.md`, and no capital is allocated to them by rule. The watchlist exists to surface accumulating conviction early (a manager at 8% this quarter is often at 12% next quarter), not to add discretionary positions.
+
 Full variant-by-variant experiment history, including every rejected alternative: `backtest/VARIANTS.md`.

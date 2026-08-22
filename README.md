@@ -14,6 +14,12 @@ C:\envs\.basic_venv\Scripts\python.exe run_quarter.py 2026Q2
 Outputs to `quarters/2026Q2/`:
 - `03_portfolio.txt` — final tickers
 - `04_funnel.md` — every HC name with the reason it was selected or cut
+- `05_watchlist_data.csv` — near-miss pool: names bought at 1–10% conviction
+  (below the HC cut) that pass the quant screen and rank in the better half
+  of the magic-formula universe
+- `05_watchlist.md` — subjective review of that pool, written by Claude Code
+  after each run (see CLAUDE.md): picks ranked in long-term-investment order.
+  Judgment, not a screen; not reproducible; never part of the portfolio
 - `01_screen.csv`, `02_ranks.parquet` — intermediates
 
 `--no-refresh` skips network refresh (uses local data as-is).

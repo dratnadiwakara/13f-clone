@@ -38,7 +38,7 @@ bands:
   hc_min_weight: 0.10
   hc_lookback_qtrs: 6
   mc_min_weight: 0.01
-  mc_max_weight: 0.05
+  mc_max_weight: 0.10
   carry_lookback_qtrs: 6
   carry_min_original_weight: 0.10
   carry_min_elite_managers: 1

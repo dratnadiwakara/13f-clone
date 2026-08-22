@@ -9,8 +9,10 @@ patch for stale names -> quant screen -> global magic-formula percentile
 cap -> top 7 by percentile -> macro mega-cap gate.
 
 Outputs to quarters/{Q}/: 01_screen.csv, 02_ranks.parquet, 03_portfolio.txt,
-04_funnel.md. The funnel lists every HC name with the exact reason it was
-selected or cut.
+04_funnel.md, 05_watchlist_data.csv. The funnel lists every HC name with the
+exact reason it was selected or cut; the watchlist data is the near-miss pool
+(sub-HC conviction, quant-pass, better MF half) for the subjective
+05_watchlist.md review described in CLAUDE.md.
 """
 from __future__ import annotations
 
@@ -140,6 +142,61 @@ def patch_stale(cand: pd.DataFrame, ranked: pd.DataFrame, cutoff: pd.Timestamp) 
         else:
             print(f"  {t}: fallback to Compustat ({res['reason']})")
     return out
+
+
+# ---------- near-miss watchlist ----------
+
+def build_watchlist_data(mp: pd.DataFrame, q: str, hc_tickers: set,
+                         ranked: pd.DataFrame, cutoff: str, outdir: Path) -> None:
+    """05_watchlist_data.csv: sub-HC buys (mc_min <= conviction < hc_min) that
+    pass the full quant screen and sit in the better half of the MF universe.
+    Input pool for the subjective 05_watchlist.md review (see CLAUDE.md);
+    never part of the portfolio."""
+    cfg = config.load()["bands"]
+    w = mp["hc_alt_weight"].fillna(0)
+    near = mp[(mp["quarter"] == q) & (w < cfg["hc_min_weight"])
+              & (w >= cfg["mc_min_weight"])].copy()
+    near = near.dropna(subset=["ticker"])
+    near = near[~near["ticker"].isin(hc_tickers)]
+    if near.empty:
+        print("[watchlist] no near-miss candidates")
+        return
+    scr = s_mod.run_screen(near, cutoff=cutoff, live_pe=False)
+    if "passes_quant" not in scr.columns:
+        flags = scr.apply(derive_flags, axis=1, result_type="expand")
+        scr = pd.concat([scr, flags.loc[:, ~flags.columns.isin(scr.columns)]], axis=1)
+        scr["passes_quant"] = scr[[c for c in scr.columns
+                                   if c.startswith("pass_")]].all(axis=1)
+    scr = scr.merge(near[["cik", "quarter", "cusip", "hc_alt_weight",
+                          "first_buy_quarter"]],
+                    on=["cik", "quarter", "cusip"], how="left", suffixes=("", "_hc"))
+    rk = ranked.set_index("gvkey")[["mf_pct", "ey", "roc", "mkt_cap"]]
+    scr = scr.join(rk, on="gvkey")
+    keep = scr[(scr["passes_quant"]) & (scr["mf_pct"] < 0.5)]
+    per = []
+    for tkr, grp in keep.groupby("ticker"):
+        best = grp.loc[grp["hc_alt_weight"].idxmax()]
+        mgrs = "; ".join(f"{r.manager_name} ({r.hc_alt_weight:.1%})"
+                         for r in grp.sort_values("hc_alt_weight", ascending=False)
+                         .itertuples() if pd.notna(r.manager_name))
+        fbq = grp["first_buy_quarter"].dropna()
+        row = {"ticker": tkr, "gvkey": best.get("gvkey"),
+               "issuer_name": best.get("issuer_name"),
+               "n_managers": grp["cik"].nunique(), "managers": mgrs,
+               "max_hc_alt_weight": best["hc_alt_weight"],
+               "first_buy_quarter": fbq.min() if len(fbq) else "",
+               "archetype": best.get("archetype"),
+               "mf_pct": best.get("mf_pct")}
+        for c in ("mkt_cap", "ey", "roc", "revt", "revt_cagr_3y", "gm",
+                  "roic_pre_3y", "roic_ex_gdwl", "debt_ebitda", "intcov",
+                  "fcf_to_ni_3y", "ev_ebit", "pe_fund", "datadate_used"):
+            row[c] = best.get(c)
+        per.append(row)
+    df = pd.DataFrame(per).sort_values("mf_pct").reset_index(drop=True)
+    df.to_csv(outdir / "05_watchlist_data.csv", index=False)
+    print(f"[watchlist] {len(df)} eligible near-miss name(s) "
+          f"({near['ticker'].nunique()} sub-HC buys screened) -> "
+          f"{outdir / '05_watchlist_data.csv'}")
 
 
 # ---------- funnel ----------
@@ -277,6 +334,10 @@ def main():
     fund = ranks.load_universe()
     ranked = ranks.rank_quarter(fund, q)
     ranked.to_parquet(outdir / "02_ranks.parquet", index=False)
+
+    print("[watchlist] near-miss candidates...")
+    build_watchlist_data(mp, q, set(scr["ticker"].dropna()), ranked,
+                         cutoff.strftime("%Y-%m-%d"), outdir)
 
     cand = scr.drop_duplicates("ticker")[["ticker", "gvkey"]]
     overrides = patch_stale(cand, ranked, cutoff)
