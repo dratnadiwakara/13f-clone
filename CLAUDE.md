@@ -38,7 +38,7 @@ Self-contained quarterly stock-selection pipeline (HC ∩ Magic Formula). Each q
 
 `run_quarter.py` orchestrates; all logic lives in `lib/` modules, all thresholds and paths in `config.yaml` (loaded via `lib/config.py`, the single source of truth — don't hardcode paths or thresholds).
 
-Stage order (outputs to `quarters/{Q}/`: `01_screen.csv`, `02_ranks.parquet`, `03_portfolio.txt`, `04_funnel.md`):
+Stage order (outputs to `quarters/{Q}/`: `01_screen.csv`, `02_ranks.parquet`, `03_portfolio.txt`, `04_funnel.md`, `05_watchlist_data.csv`):
 
 1. **13F freshness** (`ensure_13f`): if the quarter is beyond the bulk parquet's `max_quarter`, try `refresh/refresh_13f.py` (SEC bulk append); if bulk isn't published yet, `refresh/fetch_13f_filings.py` builds a *provisional* sidecar from individual EDGAR 13F-HR filings, used only when manager coverage ≥ 75% (`provisional.min_coverage`). Sidecars live in `data/13f/provisional/` and are NEVER merged into the authoritative parquet.
 2. **HC set** (`lib/holdings.py`, `lib/signals.py`, `lib/bands.py`): amendment-deduped equity holdings → purchase actions → `hc_alt_weight` = dollar-cost purchases over the trailing `bands.hc_lookback_qtrs` (6) quarters / current portfolio; HC when ≥ `bands.hc_min_weight` (10%). Dollar-cost basis — price appreciation alone never qualifies a name. Also emits `first_buy_quarter` for the price cap.
@@ -50,6 +50,45 @@ Stage order (outputs to `quarters/{Q}/`: `01_screen.csv`, `02_ranks.parquet`, `0
 8. **Sizing**: equal weight capped at `sizing.max_weight` (20%) per ticker; remainder listed as CASH in `03_portfolio.txt`.
 
 `04_funnel.md` records every HC name with the exact reason it was selected or cut — the primary artifact for verifying a run.
+
+## Subjective watchlist (Claude step after every quarterly run)
+
+The pipeline also writes `05_watchlist_data.csv`: the near-miss pool — names bought by tracked managers at 1–10% conviction (below the HC cut) that pass the full quant screen and rank in the better half of the MF universe. After every `run_quarter.py` run, Claude must read that CSV plus `04_funnel.md` and write `quarters/{Q}/05_watchlist.md`:
+
+- Pick 0–8 names worth a human look, judged subjectively on conviction momentum (several managers accumulating, weight approaching 10%), franchise quality visible in the metrics, and cheapness relative to quality. This is a judgment call, not a formula — do not turn it into a mechanical top-N by any column.
+- Rank the picks in the order the user should look at them **as long-term investments** — durability of the franchise first, then price paid, then manager conviction — and number them. State the ranking basis in the intro; give each pick's rank rationale in its paragraph.
+- Per pick: who is buying and at what weight, key financials, MF percentile, one paragraph on why it's interesting, and what would change the assessment. Also call out names to explicitly ignore if the raw list would otherwise mislead.
+- May also mention an HC name cut by the screen/price cap/macro gate when the cut looks harsh (those cuts are documented in `04_funnel.md`).
+- Header must state: "Subjective assessment by Claude Code on {date}. Not a screen, not reproducible; re-running may produce a different list. Not part of the portfolio."
+
+## Evaluating changes to the strategy
+
+Read `backtest/VARIANTS.md` §8 before proposing or judging any variant. Three
+results there change how results must be read:
+
+- **Noise floor ~2.6 pt.** Changing only the DCA buy day-of-month moves holdout
+  excess from 6.44 to 9.08 pt. Differences smaller than that are calendar luck.
+- **FULL XIRR alone selects broken variants.** `hc_min=0.20` posts the best FULL
+  XIRR in the whole log while idle in cash a third of the time and beating SPY
+  in half of 7-year windows. Judge on rolling-window excess (p10) plus a
+  ticker-drop bootstrap, not on headline XIRR.
+- **All FULL XIRRs here are ~1.6 pt too high** (survivorship; §8). Comparisons
+  between variants are unaffected — every arm inherits the same gap.
+
+Two evaluation traps, both hit during the §8 work:
+- Do not evaluate in short independent DCA segments. A restarted DCA has ~6
+  months of average money at risk, so segment XIRR is driven by its last few
+  months. This produced a spurious −8.94 pt walk-forward result that reversed to
+  +20.09 pt when run as one continuous book.
+- Do not evaluate a rule with a horizon longer than the measurement window. For
+  any holding-period or exit rule of N years, rolling windows must be
+  meaningfully longer than N — 3-year windows scored 3y+ max-age clocks
+  identically to never-selling, because the clock never fired.
+
+`quality_gate_passed` is NaN for ~47% of rows; missing data **passes** the
+screen (`lib/screen.py`). Treating NaN as failure collapses the candidate pool
+to ~3.8 names/quarter — a bug that silently distorted a first pass of the §8
+work.
 
 ## Data layer
 

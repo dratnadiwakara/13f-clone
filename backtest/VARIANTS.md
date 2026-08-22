@@ -269,6 +269,131 @@ wanted as an operational (not empirical) choice, EQ — clean_earnings,
 loss_year, cash_conversion, quality_gate, franchise — is the defensible
 5-flag subset: top-4 on train, best worst-window, FULL 22.03 vs 22.06.
 
+## 8. Mechanics, taxes and validation (2026-08, scratchpad session)
+
+Ran on a harness that reproduces `outputs/windows.csv` exactly (PROD FULL XIRR
+0.220575, 0.0000 pt across all 10 window/strategy cells). Scripts were
+scratchpad-only and are not in the repo; the conclusions below are.
+
+### The noise floor is ~2.6 pt of holdout excess
+
+Changing **only the day of month the DCA buys** (5/10/15/20/25) moves FULL XIRR
+by 0.1 pt but holdout excess from 6.44 to 9.08 pt. Any holdout-excess difference
+below ~2.6 pt is calendar luck. This retroactively puts several results in this
+log inside error bars — including the price cap's 0.6 pt/yr cost (§6) and most
+of the leave-one-out flag deltas (§7).
+
+### Four fixed windows understate tail risk; use rolling windows
+
+Over 102 overlapping 3-year windows (monthly step) PROD beats SPY 84% of the
+time, median +8.4 pt — but **p10 is −6.6 pt and the worst is −14.4 pt**, while
+the worst *fixed* window in `windows.csv` reads +8.2 pt. Recommend
+`p10_rolling3y_excess` as the risk metric for future variant work.
+Caveat: a 3-year window cannot evaluate any rule with a horizon longer than
+itself (see the max-age result below) — use 7-year windows for those.
+
+### Rotation: large pre-tax gain, negative after tax
+
+`run_window` never sells, and the selected list churns **3.7 of ~5.1 names per
+quarter**, so never-selling accumulates 92 tickers over 11 years. Selling names
+that drop off the list is therefore a real strategy change, not a tweak:
+
+| variant | FULL XIRR | after tax (37/20) | turnover |
+|---|---|---|---|
+| never sell | 22.06% | **19.50%** | 0% |
+| hard_rotate (30 bps) | 25.50% | — | 723%/yr |
+| exit_on_drop (30 bps) | 26.60% | **17.58%** | 711%/yr |
+
+Full rotation pays **$143k of tax on $137k invested** and its 4.5 pt pre-tax
+edge becomes a 1.9 pt deficit. **Rejected for a taxable account**; it still wins
+pre-tax, so it remains open for a tax-sheltered sleeve.
+
+### Max-age exits — rejected, and a warning about how they look
+
+A "sell after N years" clock raises FULL XIRR (3y 24.9%, 5y 25.2%, 6y 26.4%) at
+a fifth of full-rotation turnover, and appeared optimal at 6y in all three tax
+regimes. It does not survive:
+
+- **Moving the clock 3 months swings FULL XIRR up to 2.9 pt with no pattern**
+  (5.25y 23.73%, 5.5y 26.61%, 6.0y 26.35%, 6.25y 24.25%). Not a parameter.
+- On **54 rolling 7-year windows** (long enough for the clock to fire),
+  never-selling has the best floor: min +0.03, beats SPY in **100%** of windows.
+  Every clock introduces losing windows (2y min −2.71, 3y −2.39, 5y −0.94).
+
+**Never-selling now stands on evidence, not on the absence of a test.**
+
+### Survivorship is ~1.6 pt/yr and is NOT fixable with better delisting data
+
+The 27% of `screen_history.csv` tickers missing from `prices.parquet` overstates
+the problem: only **17 of 132 HC-qualifying names (13%)**, occupying **24 of 229
+selected slots (10.5%)**, mostly 2014-2017. Twelve of the 17 are *acquisitions*
+(Allergan, EMC, Time Warner, TWC, Medivation, IHS Markit, CDK, Stamps.com,
+WebMD, Michaels, Aerojet, Sapiens), two bankruptcies, three data gaps.
+
+Reinstating them with synthetic paths costs 1.58–1.70 pt of FULL XIRR under any
+assumption — and **1.55 pt even when they are given exactly SPY returns.** The
+mechanism is not their performance: `run_window` silently drops unpriced picks
+from `usable` and spreads that month's money over the survivors, concentrating
+the book into hindsight winners. Only filling the *slots* fixes it.
+
+**Every FULL XIRR in this repo is ~1.6 pt too high** (PROD ≈ 20.5%, not 22.06%).
+Variant *comparisons* are unaffected — all arms inherit the same gap.
+To close it: backfill the 17 names above (merger 8-K prices; bankruptcies at
+last trade), not all 616 tickers.
+
+### The edge is in the screen, and it is not fitted
+
+Two validation tests, both previously unrun:
+
+- **Cohort test** (each quarter's picks on their own forward return, no
+  accumulation, vs SPY over the same interval): **+6.7 pt at 12 months, +16.0 at
+  24, +28.5 at 36**, t-stat 1.57 → 2.88 → 3.25. The edge is in selection, not in
+  the accumulated book. This also explains why exits hurt: picks keep
+  outperforming for years after selection.
+- **Walk-forward** (config chosen annually from a 24-point grid using only data
+  up to that date, one continuous DCA book, 2019-01→2026-05): walk-forward
+  **37.69%** vs shipped config 32.50% vs SPY 17.60%. Walk-forward *beats* the
+  fitted config and wins 79% of 24 overlapping start dates. **There is no
+  fitting premium to subtract.**
+
+  *Methodology warning:* running each year as its own DCA segment instead gives
+  a spurious −8.94 pt and a fake +10 pt "fitting premium" — a restarted DCA has
+  ~6 months of average money at risk, so segment XIRR is driven by its final
+  months (one 5-month stub annualized SPY at 60%). Do not evaluate this strategy
+  in short independent DCA segments.
+
+### Outcome dispersion: 56% win rate, carried by outliers
+
+Across 210 individual pick-quarters with 12-month returns: win rate **56%**,
+mean excess +9.30 pt, **median only +3.03 pt**. Dropping the top contributor
+(TSEM, +516%) takes the mean to +6.88; dropping the top 10 of 210 takes it to
++2.04. The *portfolio* still beats SPY in 66% of 1-year, 84% of 3-year and 100%
+of 7-year windows — positive skew at the portfolio level — but expect multi-year
+stretches with no visible edge.
+
+**Median pick excess has decayed**: +5.2 pt (2014-2019) → +2.9 pt (2020-2025),
+while the mean rose on rarer, larger outliers. Consistent with a partially
+arbitraged, publicly documented effect (13F cloning is an established literature
+and an ETF category).
+
+### Adopted / not adopted from this session
+
+- **`mf.top_n: 7 → 5`** — the one change that improves the bootstrap floor,
+  median and p95 together (200 ticker-drop draws: p5 2.45/med 7.18/p95 8.40 vs
+  PROD 2.16/6.39/7.57) at zero turnover, tax or rule cost. **Not yet applied to
+  `config.yaml`.**
+- **Not adopted:** rotation and max-age (above); `hc_min` > 0.10 (0.20 posts the
+  highest FULL XIRR in the study, 24.51%, while sitting in cash 43 of 137 months
+  and beating SPY in 50% of 7-year windows — the clearest example in this log of
+  FULL XIRR selecting a broken variant); stage-level simplification (a 4-rule
+  version scores the same as the 16-rule PROD on bootstrap, neither better nor
+  worse — simplify only if you value fewer moving parts).
+- **Do not wire in:** `quality_tier` is *inverted* as a return predictor
+  (Marginal 28.7% forward 1y, Elite 22.0%, Average 13.6%); **manager track
+  record is actively harmful** — 288 of 325 HC name-quarters come from a single
+  manager, but following the top-8 managers by 2015-2020 returns yields 15.5%
+  in 2021-2026 vs 29.2% for everyone else.
+
 ## Rejected / not pursued
 
 - **Shorter lookbacks (1q, 2q)** — full-period indistinguishable from 4q but
@@ -295,7 +420,12 @@ loss_year, cash_conversion, quality_gate, franchise — is the defensible
   evaluated separately on top of the selected variant (§6). A sweep over
   cap × the rest of the grid was not run.
 - All figures come from one price cache (`backtest/cache/prices.parquet`),
-  which drops some delisted tickers — survivorship pressure is upward.
+  which drops some delisted tickers — survivorship pressure is upward, and §8
+  sizes it at **~1.6 pt/yr** on FULL XIRR.
+- The 13F panel carries no filing-date column, so the 50-day formation lag is an
+  assumption rather than a verified fact. Amendments are 3.2% of rows and 96.5%
+  of manager-quarters contain none, so the exposure is small — but a manager who
+  files late is silently treated as on time.
 - Macro-gate PIT market caps use Compustat `prcc_f × csho` at the fiscal
   datadate rolled forward by price return; shares outstanding can be up to
   550 days stale, so names near the threshold could flip.
