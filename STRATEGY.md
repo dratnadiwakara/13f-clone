@@ -6,7 +6,7 @@ This document describes every rule in the strategy, why each rule exists, and th
 
 ## The idea in one paragraph
 
-Roughly 50 investment managers with strong long-term records ("tracked managers") must disclose their US equity holdings every quarter in SEC 13F filings. When one of them puts a large share of their portfolio into a single stock, that is a costly, verifiable signal of conviction. The strategy starts from those high-conviction purchases, removes companies whose financial statements show fragility, ranks the survivors by Joel Greenblatt's "magic formula" (cheap price for a high-return business), and buys the best seven, equally weighted. Two overlays temper the entry: a cap on chasing stocks that have already doubled, and a block on mega-caps when the overall market is expensive.
+Roughly 50 investment managers with strong long-term records ("tracked managers") must disclose their US equity holdings every quarter in SEC 13F filings. When one of them puts a large share of their portfolio into a single stock, that is a costly, verifiable signal of conviction. The strategy starts from those high-conviction purchases, removes companies whose financial statements show fragility, ranks the survivors by Joel Greenblatt's "magic formula" (cheap price for a high-return business), and buys the best seven, equally weighted. Two overlays temper the entry: a cap on chasing stocks that have already doubled, and a block on mega-caps when the overall market is expensive. Contributions are made monthly, and are doubled or tripled after a market drawdown.
 
 ## Step 1 — The high-conviction (HC) set
 
@@ -82,6 +82,24 @@ This rule is disclosed as what it is: a behavioural constraint, not a return enh
 
 In practice the portfolio holds about 5 names per quarter on average; the screen, not the top-7 cut, is usually the binding constraint.
 
+## Step 6 — Contribution policy
+
+The steps above decide *what* to buy. This one decides *how much* to deposit, and is the only rule in the strategy that is not implemented by the pipeline — `run_quarter.py` is unaffected by it.
+
+**Contribute the normal monthly amount, except: 2× when the trailing 6-month S&P 500 total return is below −5%, and 3× when it is below −10%.**
+
+Measured on CRSP monthly total returns over 2014-06 → 2025-12, this is worth about **+1.4 points of annual return** (16.73% → 18.10%). The gain is timing, not the extra money: contributing the same larger total spread evenly across every month reproduces the baseline return exactly. Doubling on 12 randomly chosen months instead (500 placebo draws) never matched it. Lagging the signal by one or two months barely changes the result, so it does not require acting immediately on month-end data.
+
+It fires rarely — 12 months in 11.5 years, concentrated in 2015-09/10, 2016-02, 2019-01, 2020-04 and seven months of 2022. Its practical effect is to buy heavily through bear markets, which is where the strategy's one losing stretch occurred (the 2020–22 three-year book returned −3.3%).
+
+Three qualifications, all material:
+
+- **The evidence base is one bear market.** Seven of the twelve firing months are 2022. Do not expect a reliable +1.4 points.
+- **The 3× tier rests on three months.** Flat 2× at −5% captures +1.2 of the +1.4; the deeper tier is not separately validated, and pressing harder still (4× at −10%) is *worse* than flat 2×.
+- **It assumes the extra cash exists.** The backtest does not model where the additional contribution comes from; in practice it requires holding a reserve.
+
+Variants that were tested and rejected: tripling instead of doubling, a shallower 1.5× tier at −2% (actively harmful, −0.3 points), gating on S&P P/E or Shiller CAPE (no valuation threshold helped, on full series back to 2007 and 2011 respectively), and routing the extra money into SPY rather than the strategy (gives up the entire benefit). Details in `backtest/VARIANTS.md` §13.5.
+
 ## Evidence
 
 Backtest: $1,000 invested monthly, January 2015 – May 2026, prices from Yahoo Finance, positions formed 50 days after each quarter-end (the 13F filing deadline plus a buffer). Returns are money-weighted (XIRR), the correct measure for a strategy that receives contributions over time.
@@ -96,11 +114,25 @@ Backtest: $1,000 invested monthly, January 2015 – May 2026, prices from Yahoo 
 
 The strategy beats the index in all four 3-year windows, with one month of forced cash in eleven years.
 
+**Read the full-period figure with care.** It is highly sensitive to the endpoint: because contributions accumulate over time, the final months hold the most money and dominate the number. Ending the same backtest five months earlier, at December 2025, gives 19.7% rather than 22.1%. Re-measuring on CRSP monthly total-return data — which is delisting-complete and dividend-inclusive — over 2014-06 → 2025-12 gives **16.7%** against SPY's 14.9%.
+
+The more stable measure is the rolling 3-year window, and the two data sources agree closely there:
+
+| Measure | yfinance daily (2015-01 → 2026-05) | CRSP monthly (2014-06 → 2025-12) |
+|---|---|---|
+| Median 3-year XIRR | 25.3% | 24.2% |
+| Median excess over SPY | +8.6 pts | +10.3 pts |
+| Windows beating SPY | 84% | 89% |
+
+Both engines put the typical three-year outcome at roughly 9–10 points a year over the index, winning in about 85–90% of windows. That is the number to plan around. Note that the rolling median exceeds the full-period figure because a single continuous book must live through the bad stretches that a median across overlapping windows averages away — the 2020–22 three-year book returned −3.3%.
+
+**How much does the 13F conviction filter contribute?** Running the identical screen, ranking and engine on the whole US universe with no manager filter gives 11.2% versus the strategy's 16.7%, and a rolling win rate of 50% versus 89%. The manager signal, not the screen or the magic-formula ranking, is what generates the edge (`backtest/VARIANTS.md` §13.3).
+
 **Parameter selection and out-of-sample check.** The current parameters were chosen by a 640-variant sweep scored on robustness (performance with the two biggest winners removed, plus worst-window performance) rather than raw return. As a check against overfitting, the sweep was re-run using only 2015–2023 data: the chosen parameters ranked 2nd of 640 on that training period alone, and returned **32.8% vs SPY's 23.1%** on the untouched 2024–2026 holdout.
 
 ## Honest limitations
 
-- **Survivorship pressure.** The price source drops some delisted tickers, which biases backtest returns upward by an unknown but nonzero amount.
+- **Survivorship pressure.** The primary price source drops 16 of the strategy's 112 tickers, all delisted. This has now been measured directly against delisting-complete CRSP data and the effect on this strategy is small — about +0.2 points, not the ~1.6 points estimated across the wider backtest. The missing names are not uniformly failures: three total or near-total losses are offset by several multi-baggers.
 - **The holdout is not fully clean.** The parameter grid was widened after earlier full-sample results had flagged the winning region, so the out-of-sample check is best read as "not contradicted" rather than "validated." The holdout period was also one in which most variants beat the index.
 - **Concentration.** Five to seven positions means single-name outcomes dominate any given year. The robustness scoring and the 20% cap mitigate but do not remove this.
 - **Signal lag.** 13F data is up to 135 days old at formation. The strategy is built on the persistence of manager conviction, not on speed.

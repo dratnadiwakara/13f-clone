@@ -429,3 +429,575 @@ and an ETF category).
 - Macro-gate PIT market caps use Compustat `prcc_f × csho` at the fiscal
   datadate rolled forward by price return; shares outstanding can be up to
   550 days stale, so names near the threshold could flip.
+
+---
+
+## 9. Do the quant filters actually avoid bad companies? (full-universe test)
+
+§7 measured the 11 screen flags by dropping one at a time from the production
+pipeline and reading FULL XIRR. That test is weak twice over: the candidate
+pool is the HC set (~132 names, 288 of 325 name-quarters from one manager), and
+§8 then showed a ~2.6 pt noise floor that swallows most of those deltas. It
+also asks the wrong question — the flags exist to avoid disasters, not to pick
+winners, and disaster-avoidance is a left-tail claim about a cross-section.
+
+Tested directly instead, on the whole Compustat panel.
+`backtest/filter_efficacy.py`, outputs `backtest/outputs/filter_efficacy_*`.
+
+**Setup.** 105,225 firm-years (14,525 firms, cap ≥ $50M, USD) scored by the
+production chain — `per_gvkey_metrics` → `tag_archetype` → `quality_gate` →
+`derive_flags`, unmodified, no 13F input. Grain is firm-YEAR, not firm-quarter.
+Returns are in-panel `adj_px = prcc_f / ajex`, fiscal-year to fiscal-year, at
+1/3/5/10y. Metric is the rate of severe drawdown (return < −50%) among names a
+filter REJECTS minus the rate among names it KEEPS; positive = the filter is
+rejecting worse companies. Mean return is reported but is not the objective.
+
+Three things make the numbers trustworthy, and one makes them conservative:
+
+- **Delisted firms are retained, not dropped.** Every firm that stops reporting
+  is classified by `dlrsn` and contributes a return: `acquired` (01/03) and
+  `failed` (02/04/05/07/09/20) at last observed price, bankruptcy forced to
+  −100%, `dropped_unknown` (10, 2,585 gvkeys, genuinely ambiguous) kept in its
+  own column. Silently dropping unpriced names is the exact mechanism §8 found
+  was inflating FULL XIRR by ~1.6 pt.
+- **`costat` is never used to filter history.** It is a static as-of-today flag;
+  filtering on it would delete 37.6% of the 2015 opportunity set.
+- **CIs are a cluster bootstrap over gvkey** (1,000 draws). One firm supplies up
+  to 16 firm-years and at H=10 neighbouring rows share 9 of 10 years, so
+  independent-sample CIs are ~4x too narrow and would make everything look
+  significant.
+- **Conservative:** returns are dividend-blind, which penalises mature payers —
+  who cluster in the PASS arm. Acquisitions realise no deal premium (last fiscal
+  price ≈ formation price), and acquisitions are *more* common among rejects
+  (18.3% vs 10.2% at 5y), so that also penalises the pass arm.
+
+**The screen as a whole works, and the effect is large.**
+
+| horizon | arm | n | severe-dd | failure | p10 | median |
+|---|---|---|---|---|---|---|
+| 5y | passes_quant | 29,731 | **8.7%** | **0.8%** | −0.45 | +6.9% |
+| 5y | rejected | 38,124 | 23.7% | 3.1% | −0.87 | 0.0% |
+| 10y | passes_quant | 16,242 | **13.2%** | **1.5%** | −0.62 | +7.8% |
+| 10y | rejected | 19,653 | 26.6% | 4.5% | −0.93 | +0.4% |
+
+Failure rate is cut by ~3x at both horizons. This is a much cleaner result than
+anything in §7, because n is ~10,000x larger and the metric matches the flags'
+actual job.
+
+**Per-filter, marginal (within names passing the other 10) and size/sector
+matched.** Matching pairs each rejected firm-year with up to 3 kept firm-years
+in the same fyear, same gsector, nearest log-cap (±0.5) — a filter that only
+dodges micro-cap biotech scores well raw and collapses when matched.
+
+| filter | marginal 5y | matched 5y | matched 10y | verdict |
+|---|---|---|---|---|
+| `pass_loss_year` | +46.2% | **+14.4%** | **+13.7%** | strongest, survives everything, 9/9 sectors |
+| `pass_franchise` | +16.4% | **+7.2%** | **+10.9%** | robust, grows with horizon |
+| `pass_intcov` | +12.4% | **+10.4%** | **+9.4%** | robust, 10/10 sectors |
+| `pass_leverage` | +5.0% | +2.4% | +4.3% | real but modest |
+| `pass_revenue` | +10.0% | +2.0% | +2.0% | mostly a size/sector proxy |
+| `pass_cash_conversion` | +11.0% | +0.4% | −0.2% | **entirely** a size/sector proxy |
+| `pass_clean_earnings` | +12.3% | −0.1% | −1.1% | **entirely** a size/sector proxy |
+| `pass_quality_gate` | +2.1% | **−4.1%** | **−6.0%** | rejects *safer* names once matched |
+| `pass_depository_exclude` | −7.1% | **−14.2%** | **−17.5%** | rejects far safer names |
+| `pass_maturity_cliff` | — | — | — | not measurable (118 rejects / 89 firms at 5y) |
+| `pass_etf_exclude` | — | — | — | not measurable (19 firms); dead on this universe |
+
+Four findings worth acting on:
+
+1. **Four filters carry the screen.** `loss_year`, `franchise`, `intcov`,
+   `leverage` keep a positive matched delta at both horizons and in all three
+   cap terciles. These are the ones doing real work, and notably §7 ranked three
+   of them as individually droppable — the conjunction hid their value because
+   FULL XIRR on ~5 names/quarter cannot resolve it.
+2. **Three filters are size/sector proxies.** `clean_earnings`,
+   `cash_conversion` and (mostly) `revenue` post large raw deltas that go to
+   ~zero once matched on year, sector and cap. They are not detecting bad
+   companies; they are detecting small companies in risky sectors. That does not
+   make them useless — the strategy does not size-match — but their contribution
+   is not what the flag names claim.
+3. **`pass_quality_gate` rejects safer-than-average names once matched**
+   (−4.1% at 5y, −6.0% at 10y). It is also the only flag where missing data
+   FAILS rather than passes (`lib/screen.py`, trad-ops `no_roic_data`,
+   asset-light `no_roic_or_gm`), and its rejects are 12,291 trad-ops + 10,645
+   asset-light firm-years. §7 gave it the largest drop-delta (−1.67 pt), so on
+   this evidence the gate helps returns while *not* helping disaster avoidance.
+   Both can be true — a high-ROIC hurdle is a quality/return filter, not a
+   safety filter. Worth keeping, but not on avoidance grounds.
+4. **`pass_depository_exclude` is the strongest negative in the study.** The
+   banks it excludes had a 2.0% severe-drawdown rate vs 18.5% for what the
+   screen keeps, a 0.7% failure rate, and a **+23.3% median 5y return**. Over
+   2010–2025 US depositories were the *safe* corner of the market. The exclusion
+   is deliberate operator policy (see CLAUDE.md) and this does not argue for
+   reversing it — but it is a policy choice with a measured cost, not a
+   risk control.
+
+**Robustness.** Re-running with bankruptcy valued at last reported price rather
+than −100% (`--no-bankrupt-zero`) changes no ranking at either horizon; the
+largest matched-delta move is 1.0 pt (`maturity_cliff`, already unmeasurable).
+Full comparison in `filter_efficacy_*_nobz.csv`.
+
+**Limits.** Annual granularity only, so nothing here speaks to timing or
+drawdown path. Dividend-blind. Deal premia unrealised. `dropped_unknown`
+(dlrsn 10) is reported separately rather than assigned to either outcome. The
+panel starts at fyear 2009, so 10y observations come from 2010–2015 formations
+(35,895 firm-years, 8,393 firms) and are therefore concentrated in one market
+regime.
+
+---
+
+## 10. The 4-rule screen: full-universe and strategy backtests
+
+§9 found that only four of the eleven flags — `pass_loss_year`, `pass_intcov`,
+`pass_franchise`, `pass_leverage` — keep a positive size/sector-matched
+disaster-avoidance delta at both 5y and 10y. This section tests a screen built
+from just those four, on both measurement axes. The depository exclusion stays
+in force throughout as separate operator policy (CLAUDE.md), so only the quant
+screen changes. Run with:
+
+```
+python backtest/run_windows.py --flags pass_loss_year,pass_intcov,pass_franchise,pass_leverage,pass_depository_exclude --out windows_4rule.csv
+```
+
+`load_screen(flags_subset)` in `backtest/run_windows.py` now takes an optional
+flag subset; passing None is the production path and still reproduces
+`windows.csv` exactly (PROD FULL 22.06%).
+
+### Full universe: the 4-rule screen is BETTER at avoiding bad companies
+
+Same 105,225-firm-year panel as §9.
+
+| horizon | screen | keeps | severe-dd kept | failure kept | severe-dd rejected | failure rejected |
+|---|---|---|---|---|---|---|
+| 5y | 11-rule | 43.8% | 8.7% | 0.80% | 23.7% | 3.07% |
+| 5y | **4-rule** | **60.1%** | 10.1% | 0.90% | **27.7%** | **3.85%** |
+| 10y | 11-rule | 45.2% | 13.2% | 1.48% | 26.6% | 4.47% |
+| 10y | **4-rule** | **62.6%** | 14.2% | 1.64% | **31.2%** | **5.59%** |
+
+Separation (rejected minus kept), with 95% gvkey-cluster bootstrap CIs:
+
+| horizon | screen | severe-dd delta | failure delta |
+|---|---|---|---|
+| 5y | 11-rule | +15.0% [+14.1, +16.0] | +2.28% [+1.96, +2.61] |
+| 5y | **4-rule** | **+17.6% [+16.5, +18.7]** | **+2.96% [+2.55, +3.37]** |
+| 10y | 11-rule | +13.4% [+12.1, +14.8] | +2.98% [+2.38, +3.58] |
+| 10y | **4-rule** | **+17.0% [+15.5, +18.4]** | **+3.95% [+3.20, +4.64]** |
+
+The 4-rule screen separates better on both metrics at both horizons, and the CIs
+do not overlap at 10y. It rejects a smaller but much more concentrated set of
+genuinely dangerous companies while keeping 60% of the universe rather than 44%.
+Seven of the eleven rules were rejecting names that were not, in fact, dangerous.
+
+Under size/sector matching the gap becomes stark:
+
+| horizon | screen | severe-dd kept | severe-dd rejected | matched delta |
+|---|---|---|---|---|
+| 5y | 11-rule | 12.9% | 13.5% | **+0.6%** |
+| 5y | **4-rule** | 14.7% | 22.5% | **+7.8%** |
+| 10y | 11-rule | 18.0% | 17.1% | **−0.9%** |
+| 10y | **4-rule** | 19.0% | 27.7% | **+8.7%** |
+
+**Matched, the full 11-rule screen does not separate at all** (+0.6% at 5y,
+−0.9% at 10y) while the 4-rule screen separates strongly. The seven discarded
+rules are not merely redundant — collectively they dilute the screen back to
+noise, because their rejections are driven by size and sector rather than by
+danger. This is the strongest single result in the log for the disaster-
+avoidance question.
+
+### Strategy backtest: slightly worse, inside the noise floor, one bad window
+
+| window | 11-rule PROD | 4-rule PROD | Δ | excess vs SPY (11r → 4r) |
+|---|---|---|---|---|
+| 2015-2017 | 24.29% | 26.05% | +1.77 | +8.16 → +9.92 |
+| 2018-2020 | 31.94% | 28.81% | −3.13 | +12.57 → +9.44 |
+| 2021-2023 | 19.90% | 10.52% | **−9.38** | +9.24 → **−0.14** |
+| 2024-2026H1 | 32.18% | 31.45% | −0.73 | +9.07 → +8.34 |
+| **FULL 2015-2026** | **22.06%** | **20.92%** | **−1.14** | +6.20 → +5.06 |
+
+FULL is 1.14 pt lower — comfortably inside §8's ~2.6 pt noise floor, so on its
+own that difference is not interpretable. The 2021-2023 window is not: −9.38 pt
+is well outside it and needs a cause, not a shrug.
+
+Diffing the picks quarter by quarter gives one. The 4-rule screen passes 60.2%
+of HC candidates versus 39.3% for the 11-rule screen, so it fills quarters that
+were previously starved:
+
+```
+2021Q1  11r= 2 names   4r= 6   ADDED: BABA, CVS, EBAY, IFF
+2021Q2  11r= 1 name    4r= 4   ADDED: BABA, CRM, CVS
+2021Q3  11r= 1 name    4r= 5   ADDED: BABA, CRM, DIS, LMT
+2021Q4  11r= 4 names   4r= 7   ADDED: BMY, GD, GDDY, IFF   DROPPED: NVDA
+```
+
+In 2021 the 11-rule screen was producing one or two names a quarter — the top-7
+cut was nowhere near binding, the screen was. The looser screen backfilled those
+slots with 2021-vintage large caps, BABA in three consecutive quarters, and they
+fell hard. It also dropped NVDA in 2021Q4. So the window's loss is a
+concentration-and-vintage accident in a handful of names, exactly the
+single-name noise §8 warns about ("holdout values swing 21-42% across
+one-group differences"), not evidence that the four rules are unsafe.
+
+### Reading the two results together
+
+They do not conflict; they answer different questions.
+
+- **As a safety filter, 4 rules beat 11**, decisively and with non-overlapping
+  CIs. The matched result says the 11-rule screen's apparent safety is almost
+  entirely a size/sector effect.
+- **As a return filter, 11 rules are modestly ahead** (+1.14 pt FULL, inside
+  noise), driven by one window in which the tighter screen's scarcity
+  accidentally avoided a bad 2021 megacap vintage.
+
+That the tighter screen wins on returns while losing on safety is consistent
+with §9's per-flag finding: `pass_quality_gate` had the largest return
+contribution in §7 (−1.67 pt when dropped) and a *negative* matched safety delta
+(−4.1% at 5y). Several of the seven discarded rules are quality/valuation
+filters wearing risk-filter names. Dropping them removes return, not risk.
+
+**No parameter change is adopted here.** The 4-rule screen is better at the job
+the flags are nominally for and no worse on returns than the noise floor can
+resolve, but it more than doubles the pass rate (39.3% → 60.2%), which changes
+how often the top-N cut binds and interacts with `mf.top_n` — untested in
+combination. The honest recommendation is a joint sweep of `top_n` against the
+4-rule screen before adopting either, since with 60% passing, the top-N cut
+rather than the screen becomes the binding constraint.
+
+**Limits.** The strategy comparison inherits every §8 caveat: ~2.6 pt noise
+floor, four fixed windows that understate tail risk, and a ~1.6 pt survivorship
+overstatement common to both arms. Rolling-window p10 and a ticker-drop
+bootstrap — the metrics §8 says to actually judge on — have not been run for the
+4-rule arm.
+
+---
+
+## 11. top_n sweep against the 4-rule screen
+
+§10 declined to adopt the 4-rule screen because it more than doubles the pass
+rate (39.3% → 60.2%), which shifts the binding constraint from the screen to the
+top_n cut — and top_n was tuned against the old pass rate. This resolves that.
+
+`backtest/sweep_topn_4rule.py`, output `backtest/outputs/sweep_topn_4rule.csv`.
+Not `backtest/sweep.py`: that harness omits the price-runup cap (its own known
+limitations say so) and scores on the worst of four fixed windows, which §8
+shows understates tail risk. This runs the real PROD path from
+`run_windows.build_selectors` — price cap before the cut, macro gate after, 20%
+sizing cap — and ranks on **rolling 3-year p10 excess** (101 windows), with a
+**ticker-drop bootstrap** (200 draws, 20% of tickers dropped, slots backfill)
+as the second robustness measure. FULL XIRR is reported but not used to rank.
+
+| screen | top_n | roll p10 | roll median | win rate | boot p5 | FULL excess | names/qtr |
+|---|---|---|---|---|---|---|---|
+| **4-rule** | **5** | **−0.04%** | +6.80% | **89.1%** | +1.56% | +6.03% | 4.6 |
+| 4-rule | 7 | −0.58% | +8.78% | 88.1% | +1.47% | +5.06% | 6.0 |
+| 4-rule | 10 | −1.14% | +9.33% | 87.1% | +1.61% | +4.19% | 7.5 |
+| 4-rule | none | −1.18% | +6.66% | 87.1% | +1.45% | +3.76% | 8.9 |
+| 4-rule | 15 | −1.46% | +7.77% | 87.1% | +1.20% | +3.90% | 8.5 |
+| 11-rule | 5 | −4.46% | +7.87% | 86.1% | +1.68% | +6.95% | 3.9 |
+| 4-rule | 3 | −5.95% | +5.67% | 71.3% | +1.45% | +7.40% | 2.8 |
+| 11-rule | 3 | −6.79% | +4.25% | 73.3% | +2.52% | +7.93% | 2.7 |
+| 11-rule | **7 (prod)** | **−7.03%** | +8.70% | 84.2% | +1.68% | +6.20% | 4.8 |
+| 11-rule | 10 | −7.26% | +8.38% | 84.2% | +1.41% | +5.79% | 5.4 |
+| 11-rule | 15 / none | −7.57% | +8.64% | 84.2% | +1.82% | +5.77% | 5.6 |
+
+**The 4-rule screen beats the 11-rule screen on p10 at every top_n ≥ 5**, by
+4.4 to 6.5 pt — far outside the ~2.6 pt noise floor. It is not a marginal call.
+
+Head to head, 4-rule/top_n=5 against production 11-rule/top_n=7:
+
+| metric | 4-rule top5 | 11-rule top7 | diff |
+|---|---|---|---|
+| rolling 3y p10 excess | **−0.04%** | −7.03% | **+6.99 pt** |
+| rolling 3y win rate | **89.1%** | 84.2% | +4.9 pt |
+| rolling 3y median excess | +6.80% | +8.70% | −1.90 pt |
+| ticker-drop p5 | +1.56% | +1.68% | −0.11 pt |
+| FULL XIRR | 21.89% | 22.06% | −0.17 pt |
+| avg names/quarter | 4.6 | 4.8 | −0.2 |
+
+Same portfolio size, same FULL return to within 0.17 pt, essentially identical
+bootstrap floor — and the worst decile of 3-year windows improves from −7.03 pt
+to break-even. A p10 of −0.04% means that over 101 rolling 3-year windows, the
+variant almost never underperformed SPY meaningfully; the production config
+gave up 7 pt in its bad decile.
+
+This also reverses §10's reading. §10 saw the 4-rule screen 1.14 pt behind on
+FULL XIRR and called it "modestly worse on returns", flagging the 2021-2023
+window. The sweep shows that comparison was confounded by top_n: at its own best
+top_n the 4-rule screen matches FULL return *and* removes most of the left tail.
+§10's 2021-2023 hole was a top_n=7 artifact — with 60% of candidates passing,
+7 slots pulled in marginal names (BABA three quarters running) that 5 slots
+exclude. This is a fresh instance of §8's warning that FULL XIRR selects badly:
+judged on FULL XIRR alone, 11-rule/top_n=3 "wins" the whole table at +7.93 pt
+excess while posting a −6.79 pt p10 and a 73% win rate.
+
+**Also notable:** the 11-rule screen's p10 is flat-to-worsening in top_n
+(−4.46 → −7.57) and its FULL excess barely moves past 7, because at 39.3% pass
+rate the screen binds and extra slots go unfilled — top_n=15 and top_n=none are
+byte-identical. The 4-rule screen is the only arm where top_n is a live
+parameter, which is exactly what §10 predicted.
+
+### Recommendation
+
+`mf.top_n: 5` with the 4-rule screen is the best variant in this log on §8's
+own criteria — best p10, best win rate, return indistinguishable from
+production. Two reasons to still not flip `config.yaml` on this run alone:
+
+1. **The four rules were selected on the same price history this is scored on.**
+   §9 chose them from the full Compustat universe on *fundamental* outcomes
+   (blow-up and failure rates), not from this DCA backtest, so the
+   contamination is much weaker than a normal in-sample fit — but it is not
+   zero, and §5 already documents a case where widening a grid after seeing
+   full-sample results compromised the train/holdout split.
+2. **`mf.top_n: 7 → 5` is already marked adopted-but-unapplied in §5.** Config
+   still ships 7. Applying top_n=5 and the 4-rule screen together confounds two
+   changes; apply top_n=5 first, confirm it reproduces, then change the screen.
+
+Suggested order: set `mf.top_n: 5`, re-run `run_windows.py`, then switch the
+screen and re-run. Both steps are one-line config/`lib/screen.py` changes.
+
+**Limits.** 101 rolling windows from one price history, all overlapping, so
+they are not independent observations. The ticker-drop bootstrap separates the
+arms barely (+1.56% vs +1.68% p5) — it says neither variant depends on a
+handful of names, not that the 4-rule screen is more robust by that measure.
+Every arm carries the same ~1.6 pt survivorship overstatement (§8). 7-year
+windows, which §8 recommends for anything with a long horizon, were not run.
+
+---
+
+## 12. Open threads: deeper work on the 4-rule screen
+
+**Decision as of 2026-08-23: no change adopted. Production stays on the 11-rule
+screen with `mf.top_n: 7`.** §§9-11 make a strong case for a 4-rule screen at
+`top_n=5`, but the evidence is asymmetric — the full-universe safety result is
+large-sample and robust, while the portfolio result rests on 101 overlapping
+windows of one price history. The items below are what would have to be settled
+before revisiting. Nothing here is a bug; it is all unfinished measurement.
+
+### Highest value first
+
+1. **Decompose `pass_quality_gate`.** It is the only flag where missing data
+   FAILS rather than passes (`lib/screen.py`: trad-ops `no_roic_data`,
+   asset-light `no_roic_or_gm`). Its matched safety delta is negative (−4.1% at
+   5y, −6.0% at 10y) while §7 gave it the largest return contribution
+   (−1.67 pt when dropped). Split it into (a) the data-coverage effect and
+   (b) the ROIC/GM hurdle, scored separately in `filter_efficacy.py`. If the
+   negative delta is driven by (a), making missing data pass is a one-line
+   change that may beat both the 4-rule and 11-rule screens. This is the
+   cheapest open item with the highest chance of changing the answer.
+
+2. **Test the matching specification.** §9's survivors were selected under one
+   design: same fyear, same gsector, log-cap caliper ±0.5, up to 3 controls.
+   Re-run with a tighter caliper (±0.25), an industry-relative (gind) match,
+   and a propensity-score match on (log cap, sector, leverage, profitability).
+   If the four survivors reorder, the §9 conclusion is specification-dependent
+   and should be weakened. `pass_leverage` is the one to watch — it is the
+   weakest survivor (+2.4 pt at 5y) and the most likely to fall out.
+
+3. **7-year rolling windows for the top_n sweep.** §8 requires horizons longer
+   than the rule being tested; §11 scored on 3-year windows only. 54 seven-year
+   windows exist. A `top_n` change alters concentration, whose effect compounds
+   over holding periods longer than 3 years.
+
+4. **Walk-forward the screen choice.** Pick the surviving flags on 2010-2017
+   Compustat outcomes only, then score the resulting screen on 2018-2026
+   portfolio returns. §9 selected flags on fundamental blow-up rates rather than
+   on this DCA backtest, so contamination is weak — but it is not zero, and §5
+   documents a case where post-hoc grid widening compromised a train/holdout
+   split. This is the test that would make the 4-rule result publishable rather
+   than suggestive.
+
+### Secondary
+
+5. **Turnover and tax.** §11 compared gross returns. The 4-rule screen churns
+   more in some quarters (2025Q3 turns over almost completely versus the
+   11-rule book). Quantify realised turnover and after-tax return before
+   adopting — the log has never costed turnover for any variant.
+
+6. **Ticker-drop bootstrap barely separates the arms** (+1.56% vs +1.68% p5).
+   It says neither variant leans on a handful of names; it does not rank them.
+   A block bootstrap over calendar time would be the more informative test,
+   since the failure mode of concern is a bad vintage (§10's 2021 BABA
+   sequence), not a bad ticker.
+
+7. **`pass_maturity_cliff` and `pass_etf_exclude` remain unmeasured** (89 and 19
+   firms respectively pass the other ten). They are retained on the precautionary
+   principle. `pass_etf_exclude` is structurally dead on a Compustat universe —
+   ETFs are not in the panel — so it only ever binds via the 13F path.
+
+8. **Sector-level detail behind the survivors.** §9 reports sector counts
+   (`sectors 9/9`, `10/10`) but not which sectors dissent. `pass_revenue` and
+   `pass_cash_conversion` hold in only 3 of 5-6 measurable sectors at 10y;
+   worth knowing whether the failures cluster in one industry.
+
+### If adopting later, do it in this order
+
+`mf.top_n: 7 → 5` first (already marked adopted-but-unapplied in §5; expected
+FULL 22.06% → 22.80%, p10 −7.03 → −4.46), re-run `run_windows.py` and confirm
+it reproduces, and only then change the screen in `lib/screen.py`. Applying both
+at once confounds two changes and makes a later regression un-diagnosable.
+
+---
+
+## 13. CRSP re-measurement, the 13F filter's value, and a drawdown contribution rule (2026-08-24, scratchpad session)
+
+First session in this log to run the strategy on **CRSP monthly data instead of
+the yfinance daily cache**. That matters for every number below: CRSP is
+delisting-complete (10,652 real delistings retained, terminal returns supplied
+by CRSP including bankruptcies at −1.0) and `MthRet` is dividend-inclusive
+total return. Selection is unchanged — `run_windows.build_selectors` is reused
+verbatim, so PROD here is production's exact ticker list; only the return source
+and the contribution grid differ (monthly month-end vs daily-on-the-20th).
+
+Scripts are scratchpad-only and not in the repo. Window 2014-06 → 2025-12
+(139 months, $1,000/month), bounded by CRSP's end and by `revt_cagr_3y` needing
+four annual Compustat rows (only 65% of gvkeys have that by 2014Q1, 6.5% by
+2013Q1 — starting earlier lets missing data pass the screen and inflates results).
+
+### 13.1 The published 22.06% reconciles to 16.73%, and it is mostly the window
+
+| Step | XIRR | Δ |
+|---|---|---|
+| `run_windows.py` PROD FULL 2015-01 → 2026-05 (published) | 22.06% | — |
+| same engine, end at 2025-12 (CRSP's last month) | 19.67% | **−2.39** |
+| same, start 2014-06 | 19.18% | −0.49 |
+| CRSP monthly total return, same window | **16.73%** | **−2.45** |
+
+**Survivorship was measured directly here and is smaller than §8's estimate.**
+Re-running the CRSP book restricted to the 96 tickers yfinance covers gives
+16.96% vs 16.73% for all 112 — a **+0.23 pt** effect, not ~1.6 pt. The 16 names
+yfinance lacks are not uniformly dead: BBBYQ −99.8%, TLRDQ −98.6%, WBA −75% are
+offset by STMP +920%, ARCH +529%, SPNS +382%. Dropping them removed roughly as
+much upside as downside. §8's ~1.6 pt figure was estimated across the whole book
+and should not be applied to the PROD arm specifically.
+
+The largest single factor is the five months 2026-01 → 2026-05 (−2.39 pt). Under
+DCA the last months hold the most money, so FULL XIRR is dominated by the
+endpoint — the same fragility §8 found when changing the buy day-of-month.
+**Do not quote FULL XIRR as the strategy's expected return.**
+
+### 13.2 Rolling windows agree across both data sources
+
+| Engine | PROD median XIRR | SPY median | excess p10 | excess median | winrate | n |
+|---|---|---|---|---|---|---|
+| yfinance daily (2015-01 → 2026-05) | 25.33% | 14.33% | −6.70% | +8.63% | 84% | 101 |
+| CRSP monthly (2014-06 → 2025-12) | 24.21% | 13.62% | −0.02% | **+10.34%** | 89% | 103 |
+
+The 1.7 pt spread is inside the ~2.6 pt noise floor. Note the rolling median
+(24-25%) exceeds both FULL figures — a continuous 11.5-year book must live
+through the bad stretches that a median over overlapping windows averages away.
+Non-overlapping calendar books: 2014-16 **11.74%**, 2017-19 **21.06%**,
+2020-22 **−3.31%**, 2023-25 **31.23%**. The 2020-22 book is the reason FULL
+(16.73%) sits below the rolling median.
+
+### 13.3 The 13F filter is where the value is
+
+Same screen, same MF ranking, same engine, same window; the only difference is
+whether HC conviction gates the candidate pool. The universe arm additionally
+carries a ≥$1B cap floor and drops SIC 6xxx (MF's ROC denominator is meaningless
+on insurance balance sheets — they swept the top 20 by `mf_pct` otherwise), so
+this is not a perfectly clean single-variable test.
+
+| Arm | FULL XIRR | rolling median excess | p10 | winrate |
+|---|---|---|---|---|
+| PROD (HC ∩ MF, top 7) | **16.73%** | +10.34 pt | −0.02 | 89% |
+| HC (no MF cut, no overlays) | 16.90% | +9.94 pt | +0.38 | 90% |
+| Universe top-10 by MF, neversell | 11.23% | +0.21 pt | **−13.43** | 50% |
+| SPY | 14.86% | — | — | — |
+
+A 5.5 pt gap with a 39-point winrate difference, far outside the noise floor.
+The universe arm concentrated into homebuilders — PHM (30 quarters), LEN (28),
+NVR (23), TOL, TPH, TMHC, MHO, MTH, KBH — plus DLX (26) and VIAB, i.e. one
+leveraged cyclical bet. **HC conviction may be acting partly as an accidental
+diversification filter**; a sector-capped universe arm was not run and would
+separate the two explanations.
+
+**PROD ≈ HC on this data** (16.73 vs 16.90, and HC is marginally ahead on both
+FULL and rolling). The MF top-7 cut, price cap and macro gate are collectively
+adding nothing measurable. Not a reason to remove them — the price cap is a
+deliberate behavioural constraint (§6) and the macro gate insures against a
+state that barely occurred in-sample — but they are currently unpaid-for.
+
+### 13.4 A hold-until-broken variant, after tax — rejected
+
+Tested at the user's request: universe top-10, sell when a name fails the quant
+screen or its `mf_pct` drifts past 0.25, per-lot FIFO with 30% short-term /
+10% long-term on realized gains, losses carried forward against gains only.
+
+| Arm | terminal (after tax) | XIRR pre | XIRR after | tax paid | median hold |
+|---|---|---|---|---|---|
+| HOLDBREAK | $197,179 | 6.37% | **5.92%** | $7,628 | 1.67 yrs |
+| ROTATE (quarterly) | $214,554 | 7.66% | 7.31% | $11,397 | 1.00 yr |
+| NEVERSELL | $253,336 | 10.79% | 10.02% | $13,164 | — |
+
+Selling actively hurt: HOLDBREAK trails NEVERSELL by 4.1 pt after tax and only
+$7.6k of that is tax. Trigger attribution shows why — `screen_fail` (30 exits)
+realized **−$5,780** of net losses and `left_universe` (12 exits) **−$8,390**;
+both rules mostly sold names *after* they fell. The one profitable trigger was
+`mf_exit`, **+$12,065 over 5 exits**. Selling winners that got expensive worked;
+selling losers that broke did not. Consistent with §8's rejection of rotation
+and max-age exits.
+
+`mf_pct > 0.25` fires on only ~2.2% of positions per quarter (5 of 55 exits) —
+near-inert, as predicted before the run.
+
+### 13.5 Adopted: double the monthly contribution after an SPY drawdown
+
+**Rule: contribute 2× the normal monthly amount when trailing 6-month SPY total
+return is below −5%, 3× when below −10%. Base contribution otherwise.**
+
+This is a **contribution policy, not a selection rule** — it changes how much is
+deposited, not what the pipeline buys. `run_quarter.py` is unaffected.
+
+| Rule (6m lookback) | invested | XIRR | Δ vs flat | timing edge |
+|---|---|---|---|---|
+| flat $1,000/mo (baseline) | $139,000 | 16.73% | — | — |
+| 2× @ −5% | $151,000 | 17.94% | +1.21 pt | +0.207 |
+| **2× @ −5%, 3× @ −10%** | $154,000 | **18.10%** | **+1.36 pt** | +0.216 |
+
+Fires 12 of 139 months: 2015-09, 2015-10, 2016-02, 2019-01, 2020-04, and seven
+months of 2022. It is essentially a fix for the −3.31% 2020-22 book in §13.2.
+
+**Why it survives scrutiny.** Holding total dollars constant at $151,000 spread
+evenly gives 2.777× — identical to baseline — so the entire gain is *timing*,
+not the extra money. Doubling on 12 **random** months (500 placebo draws)
+averages 2.766× (sd 0.057); the actual rule's 2.984× is beyond every placebo
+drawn. Lagging the signal 1-2 months barely changes it (2.927×, 2.986×), so it
+does not require acting instantly on month-end data.
+
+**Everything else tested made it worse:**
+
+| Variant | Δ XIRR | why it fails |
+|---|---|---|
+| 3× flat instead of 2× | +0.99 | non-monotone in the multiplier (2× > 2.5× > 3× < 4× > 5×) — noise, same 12 months levered harder |
+| 1.5× @ −2% + 2× @ −5% | **−0.25** | the −2% band is 6 shallow-pullback months that kept falling; `1.5×@−2 only` = +0.12 |
+| + 2× when S&P PE < 20 | −0.03 | PE<20 fires 8 months, all 2014-06→2015-01; `PE<20 only` = −0.58 |
+| + 2× when CAPE < 25 | +0.57 | no CAPE variant beats dip-only; best CAPE-only rule is +0.15 |
+| dip extra → SPY sleeve | **−0.02** | dilutes the better-compounding asset at the best entry point |
+
+**Both valuation overlays fail structurally, not for lack of data.** A full
+2007+ TTM PE series and a 2011+ CAPE series were supplied and tested; CAPE
+ranged 24.0-39.6 over this window and never got cheap in absolute terms. Within
+2014-2025 there is no genuine cheap-valuation episode, only drawdowns — so a
+valuation condition can either duplicate the drawdown signal or add noise. Both
+indices also drift upward over the sample, making a fixed threshold approximately
+a "buy early in the sample" rule rather than a valuation signal. A
+CAPE-relative-to-trailing-mean version was built and is neutral-to-negative.
+
+Routing the extra money to SPY (a diversification hedge for a 6-7 name book)
+gives 16.71% vs 18.10% — the sleeve ends at $36,546 against a $386,028 PROD
+book, ~9% of the portfolio compounding at ~15% instead of ~17-18%.
+
+### 13.6 Limitations specific to this section
+
+- **12 firing months, 7 of them 2022.** The dip rule's entire evidence base is
+  one bear market. Do not expect a reliable +1.36 pt.
+- **The 2×/3× tiering is not separable from flat 2×.** The −10% tier fires
+  3 times at a 6-month lookback; +1.36 vs +1.21 rests on three months.
+  `2×@−5/4×@−10` is *worse* (+0.71) than flat 2×, which is what noise looks like.
+- **Requires holding cash in reserve** to fund the doubles. The backtest assumes
+  the extra contribution is always available; it is not modelled as coming from
+  anywhere.
+- No transaction costs or slippage in any arm here.
+- The universe arms (§13.3, §13.4) carry a ≥$1B floor and a SIC 6xxx exclusion
+  that production does not, so "13F vs no 13F" is not a perfectly clean contrast.
+- Loss carryforward in §13.4 is unlimited against future gains, with no
+  $3,000/yr ordinary-income cap — mildly flatters the taxed arms.

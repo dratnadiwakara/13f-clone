@@ -1,0 +1,185 @@
+FILTER EFFICACY — full Compustat universe, disaster avoidance
+======================================================================
+
+Question: does each quant filter avoid BAD companies? Not: does it
+pick winners. Primary metric is the rate of severe drawdown
+(return < -50%) in the REJECTED cohort minus the ACCEPTED
+cohort. Positive delta = the filter is rejecting worse companies.
+
+Returns: Compustat prcc_f/ajex, fiscal-year to fiscal-year,
+dividend-blind (biases AGAINST the filters). Delisted firms are
+classified by dlrsn and retained, never dropped.
+Bankruptcy (dlrsn 02) forced to -100%: True
+CIs: cluster bootstrap over gvkey, 1000 draws.
+
+  H= 1y: 97,458 firm-years, 13,723 firms, severe-dd base rate 7.7%, failure base rate 0.5%
+  H= 3y: 82,636 firm-years, 12,557 firms, severe-dd base rate 14.4%, failure base rate 1.3%
+  H= 5y: 67,855 firm-years, 11,066 firms, severe-dd base rate 17.1%, failure base rate 2.1%
+  H=10y: 35,895 firm-years, 8,393 firms, severe-dd base rate 20.6%, failure base rate 3.1%
+
+
+STANDALONE — horizon 1y (pass vs fail, whole universe)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year              18,984  5,442      4.0%     22.8%   +18.7%   5.63  yes
+pass_intcov                 21,887  5,853      4.3%     19.2%   +14.9%   4.43  yes
+pass_franchise              11,399  3,462      6.4%     17.7%   +11.3%   2.78  yes
+pass_maturity_cliff          4,089  1,696      7.4%     14.7%    +7.4%   2.00  yes
+pass_cash_conversion         9,796  3,190      7.0%     13.6%    +6.5%   1.93  yes
+pass_revenue                 7,631  3,167      7.2%     13.0%    +5.7%   1.79  yes
+pass_leverage               10,533  3,566      7.3%     11.2%    +3.9%   1.53  yes
+pass_quality_gate           21,560  4,375      6.9%     10.6%    +3.8%   1.55  yes
+pass_clean_earnings          5,380  2,561      7.6%      8.5%    +0.9%   1.11  yes
+pass_depository_exclude      7,653    855      8.3%      0.8%    -7.5%   0.10   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_etf_exclude
+
+MARGINAL — horizon 1y (within names passing the other 10)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year               1,402    774      2.3%     31.1%   +28.8%  13.42  yes
+pass_intcov                    869    515      2.3%     10.5%    +8.2%   4.52  yes
+pass_cash_conversion         1,360    742      2.3%      9.9%    +7.5%   4.25  yes
+pass_franchise               1,630    842      2.3%      9.4%    +7.1%   4.05  yes
+pass_clean_earnings            637    451      2.3%      7.1%    +4.7%   3.05  yes
+pass_revenue                 1,031    603      2.3%      3.9%    +1.6%   1.67  yes
+pass_quality_gate            7,846  2,074      2.3%      3.4%    +1.0%   1.45  yes
+pass_leverage                  506    197      2.3%      3.2%    +0.8%   1.36   no
+pass_depository_exclude      5,871    809      2.3%      0.7%    -1.6%   0.31   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_maturity_cliff, pass_etf_exclude
+
+STANDALONE — horizon 3y (pass vs fail, whole universe)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year              15,886  5,031      9.0%     37.3%   +28.4%   4.16  yes
+pass_intcov                 18,568  5,388      9.3%     32.2%   +22.9%   3.47  yes
+pass_franchise               9,807  3,202     12.3%     30.4%   +18.1%   2.48  yes
+pass_revenue                 6,624  2,773     13.5%     24.7%   +11.1%   1.82  yes
+pass_maturity_cliff          3,277  1,401     14.0%     24.1%   +10.1%   1.72  yes
+pass_cash_conversion         8,477  2,932     13.4%     22.9%    +9.5%   1.70  yes
+pass_leverage                9,078  3,275     13.7%     20.1%    +6.4%   1.46  yes
+pass_quality_gate           18,489  4,077     13.2%     18.7%    +5.6%   1.42  yes
+pass_clean_earnings          4,663  2,290     14.2%     17.4%    +3.1%   1.22  yes
+pass_depository_exclude      6,654    838     15.5%      1.6%   -14.0%   0.10   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_etf_exclude
+
+MARGINAL — horizon 3y (within names passing the other 10)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year               1,196    696      6.0%     50.8%   +44.7%   8.41  yes
+pass_franchise               1,427    760      6.0%     20.9%   +14.8%   3.46  yes
+pass_intcov                    728    432      6.0%     19.4%   +13.3%   3.21  yes
+pass_cash_conversion         1,219    682      6.0%     16.3%   +10.3%   2.71  yes
+pass_clean_earnings            558    401      6.0%     14.2%    +8.1%   2.35  yes
+pass_revenue                   893    523      6.0%     12.8%    +6.7%   2.12  yes
+pass_leverage                  416    180      6.0%      8.9%    +2.9%   1.47   no
+pass_quality_gate            6,887  1,952      6.0%      8.1%    +2.1%   1.35  yes
+pass_depository_exclude      5,046    790      6.0%      1.5%    -4.5%   0.25   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_maturity_cliff, pass_etf_exclude
+
+STANDALONE — horizon 5y (pass vs fail, whole universe)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year              12,177  4,129     11.9%     41.0%   +29.1%   3.45  yes
+pass_intcov                 14,911  4,561     11.9%     35.7%   +23.8%   3.01  yes
+pass_franchise               7,889  2,659     14.9%     33.6%   +18.7%   2.25  yes
+pass_revenue                 5,456  2,505     16.2%     27.6%   +11.4%   1.70  yes
+pass_maturity_cliff          2,706  1,186     16.7%     27.3%   +10.7%   1.64  yes
+pass_cash_conversion         6,952  2,509     16.1%     26.2%   +10.1%   1.63  yes
+pass_leverage                7,505  2,816     16.3%     23.8%    +7.5%   1.46  yes
+pass_quality_gate           15,094  3,500     15.8%     21.7%    +5.9%   1.38  yes
+pass_clean_earnings          3,810  1,906     16.9%     21.0%    +4.1%   1.24  yes
+pass_depository_exclude      5,592    788     18.5%      2.0%   -16.4%   0.11   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_etf_exclude
+
+MARGINAL — horizon 5y (within names passing the other 10)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year                 920    537      8.7%     54.9%   +46.2%   6.32  yes
+pass_franchise               1,237    658      8.7%     25.1%   +16.4%   2.89  yes
+pass_intcov                    649    390      8.7%     21.1%   +12.4%   2.43  yes
+pass_clean_earnings            482    351      8.7%     21.0%   +12.3%   2.41  yes
+pass_cash_conversion         1,060    594      8.7%     19.7%   +11.0%   2.27  yes
+pass_revenue                   786    467      8.7%     18.7%   +10.0%   2.15  yes
+pass_leverage                  306    148      8.7%     13.7%    +5.0%   1.58  yes
+pass_quality_gate            5,808  1,768      8.7%     10.8%    +2.1%   1.25  yes
+pass_depository_exclude      4,128    734      8.7%      1.6%    -7.1%   0.18   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_maturity_cliff, pass_etf_exclude
+
+STANDALONE — horizon 10y (pass vs fail, whole universe)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year               5,711  2,437     16.2%     43.4%   +27.2%   2.67  yes
+pass_intcov                  7,391  2,932     15.7%     39.1%   +23.4%   2.49  yes
+pass_franchise               4,008  1,632     18.0%     40.6%   +22.6%   2.25  yes
+pass_maturity_cliff          1,255    686     20.2%     31.6%   +11.5%   1.57  yes
+pass_revenue                 2,066  1,312     20.0%     29.1%    +9.1%   1.45  yes
+pass_cash_conversion         3,828  1,715     19.6%     28.7%    +9.1%   1.46  yes
+pass_leverage                3,709  1,732     19.7%     28.2%    +8.5%   1.43  yes
+pass_clean_earnings          2,038  1,198     20.2%     26.4%    +6.2%   1.31  yes
+pass_quality_gate            7,957  2,506     19.7%     23.7%    +4.1%   1.21  yes
+pass_depository_exclude      2,851    664     22.1%      2.5%   -19.7%   0.11   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_etf_exclude
+
+MARGINAL — horizon 10y (within names passing the other 10)
+----------------------------------------------------------------------
+flag                        n_fail   clus  sev_pass  sev_fail    delta   lift  sig
+pass_loss_year                 412    265     13.2%     58.7%   +45.5%   4.45  yes
+pass_franchise                 732    433     13.2%     32.8%   +19.6%   2.48  yes
+pass_intcov                    380    255     13.2%     24.7%   +11.5%   1.87  yes
+pass_clean_earnings            307    229     13.2%     24.1%   +10.9%   1.83  yes
+pass_cash_conversion           741    449     13.2%     23.8%   +10.5%   1.80  yes
+pass_revenue                   319    237     13.2%     22.9%    +9.7%   1.73  yes
+pass_quality_gate            3,258  1,288     13.2%     13.4%    +0.2%   1.02   no
+pass_depository_exclude      1,913    567     13.2%      1.9%   -11.3%   0.15   no
+  NOT MEASURABLE (n_clusters or n below floor): pass_leverage, pass_maturity_cliff, pass_etf_exclude
+
+
+VERDICTS — 5y and 10y, marginal effect after size/sector matching
+======================================================================
+A filter is credible when the marginal delta is positive, the
+size/sector-matched delta keeps the same sign, and the sign holds
+across all 3 cap terciles and >=7 of 11 sectors.
+
+pass_leverage
+   5y  marginal +5.0% (sev 8.7% kept vs 13.7% rejected, lift 1.58x) | matched +2.4% | cap terciles 3/3 | sectors 5/8 | SIGNIFICANT
+  10y  NOT MEASURABLE — only 111 rejected firm-years / 70 firms pass the other 10 flags
+
+pass_intcov
+   5y  marginal +12.4% (sev 8.7% kept vs 21.1% rejected, lift 2.43x) | matched +10.4% | cap terciles 3/3 | sectors 10/10 | SIGNIFICANT
+  10y  marginal +11.5% (sev 13.2% kept vs 24.7% rejected, lift 1.87x) | matched +9.4% | cap terciles 3/3 | sectors 8/9 | SIGNIFICANT
+
+pass_maturity_cliff
+   5y  NOT MEASURABLE — only 118 rejected firm-years / 89 firms pass the other 10 flags
+  10y  NOT MEASURABLE — only 72 rejected firm-years / 58 firms pass the other 10 flags
+
+pass_clean_earnings
+   5y  marginal +12.3% (sev 8.7% kept vs 21.0% rejected, lift 2.41x) | matched -0.1% | cap terciles 3/3 | sectors 5/9 | SIGNIFICANT
+  10y  marginal +10.9% (sev 13.2% kept vs 24.1% rejected, lift 1.83x) | matched -1.1% | cap terciles 3/3 | sectors 1/4 | SIGNIFICANT
+
+pass_loss_year
+   5y  marginal +46.2% (sev 8.7% kept vs 54.9% rejected, lift 6.32x) | matched +14.4% | cap terciles 3/3 | sectors 9/9 | SIGNIFICANT
+  10y  marginal +45.5% (sev 13.2% kept vs 58.7% rejected, lift 4.45x) | matched +13.7% | cap terciles 3/3 | sectors 7/7 | SIGNIFICANT
+
+pass_revenue
+   5y  marginal +10.0% (sev 8.7% kept vs 18.7% rejected, lift 2.15x) | matched +2.0% | cap terciles 3/3 | sectors 6/8 | SIGNIFICANT
+  10y  marginal +9.7% (sev 13.2% kept vs 22.9% rejected, lift 1.73x) | matched +2.0% | cap terciles 3/3 | sectors 3/5 | SIGNIFICANT
+
+pass_cash_conversion
+   5y  marginal +11.0% (sev 8.7% kept vs 19.7% rejected, lift 2.27x) | matched +0.4% | cap terciles 3/3 | sectors 6/9 | SIGNIFICANT
+  10y  marginal +10.5% (sev 13.2% kept vs 23.8% rejected, lift 1.80x) | matched -0.2% | cap terciles 3/3 | sectors 3/6 | SIGNIFICANT
+
+pass_franchise
+   5y  marginal +16.4% (sev 8.7% kept vs 25.1% rejected, lift 2.89x) | matched +7.2% | cap terciles 3/3 | sectors 8/9 | SIGNIFICANT
+  10y  marginal +19.6% (sev 13.2% kept vs 32.8% rejected, lift 2.48x) | matched +10.9% | cap terciles 3/3 | sectors 6/7 | SIGNIFICANT
+
+pass_quality_gate
+   5y  marginal +2.1% (sev 8.7% kept vs 10.8% rejected, lift 1.25x) | matched -4.1% | cap terciles 3/3 | sectors 4/9 | SIGNIFICANT
+  10y  marginal +0.2% (sev 13.2% kept vs 13.4% rejected, lift 1.02x) | matched -6.0% | cap terciles 3/3 | sectors 3/9 | not significant
+
+pass_depository_exclude
+   5y  marginal -7.1% (sev 8.7% kept vs 1.6% rejected, lift 0.18x) | matched -14.2% | cap terciles 0/3 | sectors 0/1 | not significant
+  10y  marginal -11.3% (sev 13.2% kept vs 1.9% rejected, lift 0.15x) | matched -17.5% | cap terciles 0/3 | sectors 0/1 | not significant
+
+pass_etf_exclude
+   5y  NOT MEASURABLE — only 191 rejected firm-years / 19 firms pass the other 10 flags
+  10y  NOT MEASURABLE — only 106 rejected firm-years / 17 firms pass the other 10 flags

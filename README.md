@@ -39,12 +39,22 @@ Outputs to `quarters/2026Q2/`:
    ~0.6pt/yr); disable with `price_cap.max_runup: null`.
 5. **Macro gate**: when S&P PE > 20, block names with market cap > 5% of GDP.
 6. **Sizing**: equal weight, max 20% per ticker; remainder to cash.
+7. **Contributions** (not implemented by the pipeline): monthly, doubled when
+   trailing 6-month SPY total return < −5%, tripled when < −10%. Worth
+   ~+1.4pt/yr; see `STRATEGY.md` step 6 and `VARIANTS.md` §13.5 for the
+   caveats (12 firing months, 7 of them in 2022).
 
 Backtest (2015–mid-2026, DCA $1k/month, 20% cap applied): 22.1% XIRR vs
 SPY 15.9%, beating SPY in all four 3-year windows. On a 2024–2026 holdout
 the rules never saw, +9.7pt vs SPY. Run `backtest/run_windows.py`;
 parameter sweep: `backtest/sweep.py`; full variant log:
 `backtest/VARIANTS.md`.
+
+That full-period figure is endpoint-sensitive: ending five months earlier
+gives 19.7%, and re-measuring on delisting-complete CRSP total returns over
+2014-06→2025-12 gives 16.7% vs SPY 14.9%. The stable number is the rolling
+3-year window — median +9 to +10pt over SPY, winning ~85–90% of windows on
+both data sources (`VARIANTS.md` §13.1–13.2).
 
 ## Data freshness (every run)
 

@@ -18,6 +18,7 @@ rules — foreign financials in, US depositories out).
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -116,16 +117,34 @@ def add_hc_windows(scr: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return scr
 
 
-def load_screen() -> pd.DataFrame:
+def load_screen(flags_subset: list[str] | None = None) -> pd.DataFrame:
+    """Screen history with passes_quant.
+
+    flags_subset restricts which pass_* columns are ANDed into passes_quant,
+    overriding whatever the cache carries. Used to test a reduced screen — see
+    VARIANTS.md §9, where only 4 of the 11 flags survive a size/sector-matched
+    disaster-avoidance test on the full Compustat universe. None = production
+    behaviour (all flags).
+    """
     scr = pd.read_csv(CACHE / "screen_history.csv",
                       dtype={"quarter": str, "cik": str, "gvkey": str},
                       low_memory=False).dropna(subset=["ticker"])
     scr["gvkey"] = scr["gvkey"].str.zfill(6)
-    if "passes_quant" not in scr.columns:
-        flags = scr.apply(derive_flags, axis=1, result_type="expand")
-        scr = pd.concat([scr, flags.loc[:, ~flags.columns.isin(scr.columns)]], axis=1)
-        scr["passes_quant"] = scr[[c for c in scr.columns
-                                   if c.startswith("pass_")]].all(axis=1)
+    if "passes_quant" not in scr.columns or flags_subset is not None:
+        have = [c for c in scr.columns if c.startswith("pass_")]
+        if not have:
+            flags = scr.apply(derive_flags, axis=1, result_type="expand")
+            scr = pd.concat(
+                [scr, flags.loc[:, ~flags.columns.isin(scr.columns)]], axis=1)
+            have = [c for c in scr.columns if c.startswith("pass_")]
+        use = have if flags_subset is None else [c for c in flags_subset]
+        missing = [c for c in use if c not in scr.columns]
+        if missing:
+            raise SystemExit(f"unknown flag column(s): {missing}")
+        # A name with no gvkey match never got flags computed; production
+        # marks it passes_quant=False in run_screen. Preserve that.
+        no_data = scr[use].isna().all(axis=1)
+        scr["passes_quant"] = scr[use].fillna(True).all(axis=1) & ~no_data
     return add_hc_windows(scr, config.load()["bands"].get("hc_lookback_qtrs", 4))
 
 
@@ -270,8 +289,19 @@ def run_window(select, quarters, plut, start, end, max_w=None) -> dict:
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--flags", default=None,
+                    help="comma-separated pass_* subset to AND into "
+                         "passes_quant (default: all flags in the cache)")
+    ap.add_argument("--out", default="windows.csv")
+    args = ap.parse_args()
+    subset = ([f.strip() for f in args.flags.split(",")]
+              if args.flags else None)
+    if subset:
+        print(f"[screen] restricted to {len(subset)} flags: {', '.join(subset)}")
+
     OUT.mkdir(exist_ok=True)
-    scr = load_screen()
+    scr = load_screen(subset)
     prices = pd.read_parquet(CACHE / "prices.parquet")
     plut = {t: g.set_index("date")["close"].sort_index()
             for t, g in prices.groupby("ticker")}
@@ -291,8 +321,8 @@ def main():
                   f"cash {r['cash_months']}")
     df = pd.DataFrame(rows)[["window", "strategy", "invested", "terminal",
                              "multiple", "xirr", "n_tickers", "cash_months"]]
-    df.to_csv(OUT / "windows.csv", index=False)
-    print(f"\nwrote {OUT / 'windows.csv'}")
+    df.to_csv(OUT / args.out, index=False)
+    print(f"\nwrote {OUT / args.out}")
 
 
 if __name__ == "__main__":
