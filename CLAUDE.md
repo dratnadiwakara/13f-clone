@@ -96,6 +96,7 @@ work.
 - `data/compustat/` — WRDS Compustat annual panel as staging parquets (`staging/fyear=YYYY/`) + `compustat.duckdb` holding VIEWS over them. Cannot auto-refresh; manual WRDS export procedure in `data/compustat/REFRESH.md` (~twice a year). Accessed read-only via `lib/data_access.py`.
 - `data/macro/` — GDP (FRED) and S&P PE (scraped from multpl.com) parquets, upserted by `refresh/refresh_macro.py`.
 - `data/cache/edgar/` — cached companyfacts JSONs.
+- `data/cache/openfigi.parquet` — CUSIP → ticker cache from the OpenFIGI API (`lib/openfigi.py`). OpenFIGI is the primary ticker source in `signals.resolve_tickers`; the Compustat PIT map only fills CUSIPs OpenFIGI cannot map (retired CUSIPs, delisted names). OpenFIGI returns the *current* ticker, so renamed issuers get today's symbol in historical rows. `--no-refresh` uses the cache only.
 - `data/managers/candidate_managers.txt` — the 50 tracked CIKs, three tiers; how they were selected: `data/managers/SELECTION.md`.
 
 ## Domain rules to preserve

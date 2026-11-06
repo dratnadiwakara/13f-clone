@@ -69,7 +69,7 @@ def ensure_13f(q: str, no_refresh: bool) -> tuple[str, float | None]:
 
 # ---------- pipeline stages ----------
 
-def build_hc(q: str, mode: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def build_hc(q: str, mode: str, offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns (major_purchases all quarters, HC rows for q)."""
     tm = managers.load_tier_map()
     provisional = [q] if mode == "provisional" else None
@@ -78,7 +78,7 @@ def build_hc(q: str, mode: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     cutoff = ranks.formation_date(q).strftime("%Y-%m-%d")
     comp = da.load_compstat_for_actions(cutoff=cutoff)
     cw = da.load_cusip_ticker_pit()
-    actions = signals.resolve_tickers(actions, cw, comp)
+    actions = signals.resolve_tickers(actions, cw, comp, offline=offline)
     actions["manager_name"] = actions["cik"].map(h_mod.latest_manager_names(sorted(tm.keys())))
     mp = actions.rename(columns={"shares": "shares_t", "value_thousands": "value_thousands_t"})
     mp = bands.add_hc_alt(mp, mp)
@@ -324,7 +324,7 @@ def main():
     mode, coverage = ensure_13f(q, args.no_refresh)
 
     print("[hc] building conviction set...")
-    mp, hc_rows = build_hc(q, mode)
+    mp, hc_rows = build_hc(q, mode, offline=args.no_refresh)
     print(f"[hc] {hc_rows['ticker'].nunique()} HC names")
 
     print("[quant] screening...")

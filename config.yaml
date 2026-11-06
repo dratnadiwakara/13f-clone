@@ -9,6 +9,8 @@ paths:
   candidate_managers: data/managers/candidate_managers.txt
   gdp_parquet: data/macro/gdp.parquet
   sp_pe_parquet: data/macro/sp_pe.parquet
+  # CUSIP -> ticker cache from the OpenFIGI API (lib/openfigi.py)
+  openfigi_cache: data/cache/openfigi.parquet
 
 signal_thresholds:
   add_dollar_weight: 0.005
@@ -121,6 +123,13 @@ provisional:
 
 # Fundamentals freshness: HC candidates whose latest Compustat datadate is
 # older than this get an EDGAR companyfacts recompute (refresh/refresh_fundamentals.py).
+# OpenFIGI is the primary CUSIP -> ticker source; Compustat only fills misses.
+# Cached hits are re-queried after hit_ttl_days (renames change tickers);
+# misses (mostly retired CUSIPs) after miss_ttl_days.
+openfigi:
+  hit_ttl_days: 90
+  miss_ttl_days: 30
+
 fundamentals:
   stale_days: 183
 

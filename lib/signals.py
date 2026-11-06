@@ -159,21 +159,35 @@ def build_actions(holdings: pd.DataFrame,
 
 
 def resolve_tickers(actions: pd.DataFrame, cw: pd.DataFrame,
-                    comp: pd.DataFrame) -> pd.DataFrame:
-    """Attach tickers via PIT cusip8→Ticker lookup, fallback to compustat tic."""
+                    comp: pd.DataFrame, offline: bool = False) -> pd.DataFrame:
+    """Attach tickers: OpenFIGI first, then the Compustat PIT cusip8→Ticker
+    lookup, then compustat tic. The Compustat steps only fill CUSIPs OpenFIGI
+    cannot map (mostly retired CUSIPs in older quarters). `ticker_source`
+    records which step supplied each ticker."""
+    from . import openfigi
     actions = actions.copy()
     actions["cusip8"] = actions["cusip"].astype(str).str[:8]
     actions["quarter_end"] = actions["quarter"].map(quarter_end_date)
     actions["quarter_end_ts"] = actions["quarter_end"]
 
+    cusip9 = actions["cusip"].astype(str).str.strip().str.upper().str.zfill(9)
+    figi = openfigi.cusip_to_ticker(cusip9.unique(), offline=offline)
+    actions["ticker"] = cusip9.map(figi).astype(object)
+    actions["ticker_source"] = pd.Series(
+        np.where(actions["ticker"].notna(), "openfigi", None), index=actions.index, dtype=object)
+
     tickers = []
-    for (cu, qe), grp in actions.groupby(["cusip8", "quarter_end_ts"], sort=False):
+    for (cu, qe), grp in actions[actions["ticker"].isna()].groupby(
+            ["cusip8", "quarter_end_ts"], sort=False):
         g = cw[(cw["cusip8"] == cu) & (cw["MthCalDt"] <= qe)]
         t = g.iloc[-1]["Ticker"] if not g.empty else None
         for idx in grp.index:
             tickers.append((idx, t))
     tdf = pd.DataFrame(tickers, columns=["_idx", "ticker"]).set_index("_idx")
-    actions["ticker"] = tdf["ticker"]
+    if len(tdf):
+        fill = tdf["ticker"].dropna()
+        actions.loc[fill.index, "ticker"] = fill
+        actions.loc[fill.index, "ticker_source"] = "compustat_pit"
     actions = actions.drop(columns=["quarter_end_ts"])
 
     if "cusip" in comp.columns:
@@ -187,4 +201,5 @@ def resolve_tickers(actions: pd.DataFrame, cw: pd.DataFrame,
     )
     miss = actions["ticker"].isna()
     actions.loc[miss, "ticker"] = actions.loc[miss, "cusip8"].map(comp_tic)
+    actions.loc[miss & actions["ticker"].notna(), "ticker_source"] = "compustat_tic"
     return actions
