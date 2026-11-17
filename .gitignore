@@ -6,3 +6,7 @@ data/compustat/compustat.duckdb
 data/13f/provisional/_cache/
 backtest/cache/
 quarters/*/02_ranks.parquet
+
+# local backups (WRDS data must never be pushed)
+data/compustat/backup_*/
+*.bak.parquet
