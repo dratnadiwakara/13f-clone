@@ -1027,3 +1027,54 @@ Outputs: `backtest/outputs/windows_macro_{backfill,nobackfill}.csv`.
 `backtest/sweep.py` and `sweep_topn_4rule.py` keep their own gate logic and
 still apply the old no-backfill rule; update them before using them for a new
 sweep.
+
+## 15. Filing lag on the quant screen (2026-11-17, scratchpad session)
+
+`lib/ranks.py` uses a Compustat row only when `datadate + mf.filing_lag_days`
+(90) is on or before the formation date (quarter end + 50 days).
+`lib/screen.py::run_screen` had no lag: it took the latest row with
+`datadate <= quarter end`. In the screen history, 20.8% of rows have a
+fiscal year that ended less than 90 days before formation, so the backtest
+screen saw about one annual report in five before it was filed. Production
+cannot do that (the live panel holds only filed reports), so backtest and
+production were running slightly different rules.
+
+Test: rebuild `screen_history.csv` three times from the same 13F and
+Compustat data, moving the screen's `as_of` date, then run `run_windows.py`
+PROD and 101 rolling 3-year windows. MF ranks keep their 90-day lag in every
+arm. The no-lag arm reproduces the §14 baseline exactly.
+
+| Window | No lag | 90-day lag | 365-day lag |
+|---|---|---|---|
+| 2015–2017 | 24.29 | 24.29 | 28.16 |
+| 2018–2020 | 31.94 | 32.35 | 32.56 |
+| 2021–2023 | 19.48 | 18.20 | 14.71 |
+| 2024–2026H1 | 32.38 | 41.67 | 35.40 |
+| FULL | 22.10 | 22.11 | 21.62 |
+| Rolling 3y excess, p10 | −7.03 | −7.26 | −3.74 |
+| Rolling 3y excess, median | 8.70 | 8.81 | 10.09 |
+| Rolling win rate | 0.84 | 0.84 | 0.85 |
+
+- 90-day lag: the selected set changes in 12 of 50 quarters, usually by one
+  name. FULL and rolling are unchanged. The +9.3 pt in 2024–2026H1 is one
+  swap (2023Q4 GSHD → TSEM; TSEM rose 7.5x and GSHD fell 59% from 2024-02 to
+  2026-05). The look-ahead did not inflate the backtest.
+- 365-day lag (the screen sees only reports at least a year old; with the
+  550-day age window a row can be up to 915 days old): the set changes in 40
+  of 50 quarters. FULL −0.48 pt, inside the noise floor. Rolling p10 +3.3 pt.
+  2021–2023 −4.8 pt, mostly because stale data kept BABA from 2021Q1 to
+  2022Q3 after fresher reports dropped it. No ticker-drop bootstrap was run,
+  so the p10 gain is not established.
+
+Reading: portfolio returns barely depend on how fresh the screen's data is.
+The screen works as a filter for persistent problems (leverage, losses,
+falling revenue; see §9), and those last more than a year. Two limits: MF
+ranks were not tested with staler data (stale EBIT can rank a fading
+business too high, which is why the EDGAR patch refreshes names older than
+`fundamentals.stale_days`), and single names can still flip. In 2026Q3 MOH
+passed on its FY2025 row but failed interest cover and loss year on
+trailing-twelve-month EDGAR data (`refresh/edgar_ttm_check.py`). Practical
+rule: refresh Compustat about twice a year, and use the EDGAR TTM check to
+guard the names actually bought. No production change made; the 90-day lag
+is a correctness fix worth adopting with the next screen-history rebuild.
+Scripts and outputs were in the session scratchpad (`lag_bt.py`).

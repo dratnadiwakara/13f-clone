@@ -90,6 +90,12 @@ Two evaluation traps, both hit during the §8 work:
   meaningfully longer than N — 3-year windows scored 3y+ max-age clocks
   identically to never-selling, because the clock never fired.
 
+Data freshness (§15): the backtest screen (`lib/screen.py::run_screen`) has
+no filing lag, unlike `lib/ranks.py`, so ~21% of rows use a 10-K before it was
+filed. Adding a 90-day or even 365-day lag leaves FULL XIRR within 0.5 pt, so
+the look-ahead does not inflate results and a stale Compustat panel costs
+little. Fresh data still matters for single names (EDGAR TTM check).
+
 `quality_gate_passed` is NaN for ~47% of rows; missing data **passes** the
 screen (`lib/screen.py`). Treating NaN as failure collapses the candidate pool
 to ~3.8 names/quarter — a bug that silently distorted a first pass of the §8
