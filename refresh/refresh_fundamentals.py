@@ -12,6 +12,7 @@ Compustat row: returns None with reason, never raises.
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.request
 from pathlib import Path
@@ -20,7 +21,8 @@ import pandas as pd
 
 REPO = Path(__file__).resolve().parents[1]
 CACHE = REPO / "data" / "cache" / "edgar"
-USER_AGENT = "dimuthu999@gmail.com investments-research"
+# SEC requires a contact address in the User-Agent; read from SEC_USER_AGENT.
+USER_AGENT = os.environ.get("SEC_USER_AGENT", "")
 TTL_SEC = 24 * 3600
 
 EBIT_TAGS = ["OperatingIncomeLoss"]

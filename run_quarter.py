@@ -231,16 +231,23 @@ def build_funnel(q, scr, ranked, overrides, macro_res, price_res, mode,
     df = pd.DataFrame(per).sort_values("mf_pct", na_position="last").reset_index(drop=True)
 
     # outcomes. Stage order: quant -> MF (rank, plus optional hard cutoff) ->
-    # price-runup cap (before top_n, so survivors backfill) -> top_n ->
-    # macro gate (after top_n, blocked slots are NOT backfilled).
+    # price-runup cap (before top_n, so survivors backfill) -> macro gate ->
+    # top_n. With macro.backfill the gate also runs before the cut and the
+    # next-ranked survivors fill blocked slots; without it the gate runs
+    # after the cut and blocked slots stay empty.
     cut = cfg.get("pctile_cutoff")
     eligible = df[(df["quant"]) & df["mf_pct"].notna()]
     if cut is not None:
         eligible = eligible[eligible["mf_pct"] <= cut]
     eligible = eligible[~eligible["price_blocked"]]
-    top = eligible.head(cfg["top_n"])["ticker"].tolist()
-    blocked = {t for t in top if macro_res["_by_ticker"].get(t, {}).get("macro_blocked")}
-    selected = [t for t in top if t not in blocked]
+    is_blocked = lambda t: bool(macro_res["_by_ticker"].get(t, {}).get("macro_blocked"))
+    if config.load()["macro"].get("backfill", False):
+        blocked = {t for t in eligible["ticker"] if is_blocked(t)}
+        selected = [t for t in eligible["ticker"] if t not in blocked][:cfg["top_n"]]
+    else:
+        top = eligible.head(cfg["top_n"])["ticker"].tolist()
+        blocked = {t for t in top if is_blocked(t)}
+        selected = [t for t in top if t not in blocked]
 
     def outcome(r):
         if pd.isna(r["mf_pct"]) and not r["gvkey"]:

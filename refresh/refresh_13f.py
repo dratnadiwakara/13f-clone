@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import sys
 import zipfile
@@ -26,7 +27,8 @@ from lib import managers  # noqa: E402
 PARQUET = REPO / "data/13f/13f_holdings_slim.parquet"
 STATE = REPO / "data/13f/13f_holdings_slim.state.json"
 INDEX_URL = "https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets"
-UA = {"User-Agent": "investments-research/1.0 dimuthu999@gmail.com"}
+# SEC requires a contact address in the User-Agent; read from SEC_USER_AGENT.
+UA = {"User-Agent": os.environ.get("SEC_USER_AGENT", "")}
 
 COLS = ["quarter", "cik", "manager_name", "amendment_flag", "issuer_name",
         "cusip", "value_thousands", "shares_or_prn_amount", "shares_or_prn_type",

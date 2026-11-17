@@ -5,8 +5,9 @@ Strategies:
   HC    — conviction >= bands.hc_min_weight + quant pass, equal weight
   PROD  — production rule: HC (>= 10% over trailing 6Q) ∩ quant, ranked by MF
           percentile (rank-only unless mf.pctile_cutoff is set), price-runup
-          cap, top mf.top_n, macro mega-cap gate (blocked slots not
-          backfilled), 20% sizing cap
+          cap, macro mega-cap gate, top mf.top_n (with macro.backfill the
+          gate runs before the cut and survivors fill blocked slots;
+          --macro-backfill overrides), 20% sizing cap
 
 DCA $1,000/month on the 20th, equal weight across the active set, no sells.
 Screen history: backtest/cache/screen_history.csv (rebuild with
@@ -203,10 +204,13 @@ def price_runups(scr, plut, hc_col, hc_min) -> dict:
     return out
 
 
-def build_selectors(scr: pd.DataFrame, plut=None):
+def build_selectors(scr: pd.DataFrame, plut=None, macro_backfill=None):
     """plut (ticker -> close series) enables the price-runup cap and the macro
-    gate; omit it for a bare HC/MF run."""
+    gate; omit it for a bare HC/MF run. macro_backfill None reads
+    config macro.backfill."""
     cfg = config.load()
+    if macro_backfill is None:
+        macro_backfill = cfg["macro"].get("backfill", False)
     hc_min = cfg["bands"]["hc_min_weight"]
     lookback = cfg["bands"].get("hc_lookback_qtrs", 4)
     mf = cfg["mf"]
@@ -240,9 +244,11 @@ def build_selectors(scr: pd.DataFrame, plut=None):
         scored = [(t, pct[q][t2g[q][t]]) for t in cand
                   if t in t2g[q] and t2g[q][t] in pct[q]
                   and (cut is None or pct[q][t2g[q][t]] <= cut)]
-        top = [t for t, _ in sorted(scored, key=lambda x: x[1])[:mf["top_n"]]]
-        blk = blocks.get(q, ())              # macro gate, no backfill
-        return sorted(t for t in top if t not in blk)
+        blk = blocks.get(q, ())              # macro gate
+        ranked = [t for t, _ in sorted(scored, key=lambda x: x[1])]
+        if macro_backfill:                   # before the cut: survivors backfill
+            return sorted([t for t in ranked if t not in blk][:mf["top_n"]])
+        return sorted(t for t in ranked[:mf["top_n"]] if t not in blk)
 
     return quarters, {"SPY": lambda q: ["SPY"], "HC": hc, "PROD": prod}
 
@@ -294,6 +300,8 @@ def main():
                     help="comma-separated pass_* subset to AND into "
                          "passes_quant (default: all flags in the cache)")
     ap.add_argument("--out", default="windows.csv")
+    ap.add_argument("--macro-backfill", choices=["on", "off"], default=None,
+                    help="override config macro.backfill")
     args = ap.parse_args()
     subset = ([f.strip() for f in args.flags.split(",")]
               if args.flags else None)
@@ -305,7 +313,8 @@ def main():
     prices = pd.read_parquet(CACHE / "prices.parquet")
     plut = {t: g.set_index("date")["close"].sort_index()
             for t, g in prices.groupby("ticker")}
-    quarters, selectors = build_selectors(scr, plut=plut)
+    mb = None if args.macro_backfill is None else args.macro_backfill == "on"
+    quarters, selectors = build_selectors(scr, plut=plut, macro_backfill=mb)
 
     max_w = config.load()["sizing"]["max_weight"]
     rows = []

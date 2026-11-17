@@ -9,6 +9,7 @@ existing parquets untouched — the run continues on stale macro with a warning.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -19,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 GDP_PQ = REPO / "data/macro/gdp.parquet"
 PE_PQ = REPO / "data/macro/sp_pe.parquet"
 KEYS = Path("C:/key-variables/key-variables.yaml")
-UA = {"User-Agent": "investments-research/1.0 dimuthu999@gmail.com"}
+UA = {"User-Agent": os.environ.get("SEC_USER_AGENT", "investments-research/1.0")}
 
 
 def fred_key() -> str | None:

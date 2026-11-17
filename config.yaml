@@ -49,12 +49,17 @@ bands:
 macro:
   sp500_pe_threshold: 20.0
   mktcap_over_gdp_threshold: 0.05
+  # true: blocked names are removed BEFORE the top_n cut, so the next-ranked
+  # survivors fill the slots (like the price cap). false: the gate runs after
+  # the cut and blocked slots stay empty (the pre-2026-11 rule).
+  backfill: true
   live_mktcap_window_days: 7
   stale_days: 60
 
 # Magic-formula selection (final strategy: HC >= 10% conviction over 6
 # quarters -> quant pass -> rank by MF percentile on the global universe ->
-# top_n -> price-runup cap -> macro gate). Parameters set by the 2026-08
+# price-runup cap -> macro gate -> top_n; both overlays backfill, see
+# macro.backfill). Parameters set by the 2026-08
 # lookback sweep (backtest/sweep.py, 640 variants, macro gate on), validated
 # on a 2024-2026 holdout it never saw: train rank 2/640, holdout +9.7pt vs
 # SPY. Full variant history and numbers: backtest/VARIANTS.md.

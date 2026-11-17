@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -60,7 +61,9 @@ DEFAULT_CACHE_DIR = PROVISIONAL_DIR / "_cache"
 DEFAULT_MANAGERS = REPO_ROOT / "data" / "managers" / "candidate_managers.txt"
 DEFAULT_HOLDINGS = REPO_ROOT / "data" / "13f" / "13f_holdings_slim.parquet"
 
-USER_AGENT = "investments-research/1.0 dimuthu999@gmail.com"
+# SEC fair access needs a contact address in the User-Agent. Set it in the
+# SEC_USER_AGENT environment variable, e.g. "investments-research/1.0 you@example.com".
+USER_AGENT = os.environ.get("SEC_USER_AGENT", "")
 REQUEST_SPACING_S = 0.12          # <= 10 req/s per SEC fair access
 SUBMISSIONS_TTL_S = 6 * 3600
 MAX_RETRIES = 4
@@ -616,6 +619,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not _QUARTER_RE.match(args.quarter):
         print(f"[error] bad --quarter {args.quarter!r}, expected YYYYQn", file=sys.stderr)
+        return EXIT_BAD_ARGS
+    if not USER_AGENT:
+        print("[error] SEC_USER_AGENT is not set; SEC requires a contact address "
+              "in the User-Agent", file=sys.stderr)
         return EXIT_BAD_ARGS
 
     period_end = quarter_end_date(args.quarter)

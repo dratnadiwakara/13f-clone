@@ -76,7 +76,7 @@ This rule is disclosed as what it is: a behavioural constraint, not a return enh
 ## Step 5 — Final selection and sizing
 
 - Take the **top 7** names by magic-formula rank.
-- **Macro mega-cap gate:** when the S&P 500 trailing P/E exceeds 20, any selection whose market cap exceeds 5% of US GDP is removed and **not** replaced. When the index is expensive, its largest names carry the most de-rating risk; leaving the slot empty rather than backfilling keeps the gate from forcing weaker names into the book.
+- **Macro mega-cap gate:** when the S&P 500 trailing P/E exceeds 20, any candidate whose market cap exceeds 5% of US GDP is removed before the top-7 cut, and the next-ranked survivor takes its slot. When the index is expensive, its largest names carry the most de-rating risk. Until 2026-11 a blocked slot was left empty; backfilling it changed full-period XIRR by +0.04 pt, well inside the noise floor (`backtest/VARIANTS.md` §14), and keeps the book at seven names.
 - **Equal weight, 20% maximum per position.** With fewer than five names, the excess stays in cash and is deployed in later, fuller quarters.
 - **Full quarterly rotation.** Carrying positions between quarters was tested and rejected (−0.4 points full-period, −9 points in 2024–26).
 

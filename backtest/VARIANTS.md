@@ -1001,3 +1001,29 @@ book, ~9% of the portfolio compounding at ~15% instead of ~17-18%.
   that production does not, so "13F vs no 13F" is not a perfectly clean contrast.
 - Loss carryforward in §13.4 is unlimited against future gains, with no
   $3,000/yr ordinary-income cap — mildly flatters the taxed arms.
+
+## 14. Macro gate backfill (2026-11-16)
+
+The macro gate used to run after the top_n cut, so a blocked slot stayed empty.
+In 2026Q3 that left the book at six names (TSM blocked at a $1,937bn market cap
+against a $1,651bn limit). The operator asked for blocked slots to be refilled.
+`macro.backfill: true` now removes blocked names before the cut, the same way
+the price cap works, so the next-ranked survivor takes the slot.
+`backtest/run_windows.py --macro-backfill on|off` compares the two rules on
+the same caches.
+
+| Window | No backfill | Backfill | Δ |
+|---|---|---|---|
+| 2015–2017 | 24.29 | 24.29 | 0.00 |
+| 2018–2020 | 31.94 | 31.94 | 0.00 |
+| 2021–2023 | 19.90 | 19.48 | −0.42 |
+| 2024–2026H1 | 32.18 | 32.38 | +0.20 |
+| FULL | 22.06 | 22.10 | +0.04 |
+
+The no-backfill arm reproduces the §8 baseline (FULL 22.06). The gate binds in
+few quarters, and every difference is far below the 2.6 pt noise floor, so the
+change is neutral on returns. It was adopted to keep the book at seven names.
+Outputs: `backtest/outputs/windows_macro_{backfill,nobackfill}.csv`.
+`backtest/sweep.py` and `sweep_topn_4rule.py` keep their own gate logic and
+still apply the old no-backfill rule; update them before using them for a new
+sweep.

@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Python venv: `C:\envs\.basic_venv` — run everything with `C:\envs\.basic_venv\Scripts\python.exe` (pandas, pyarrow, duckdb, pyyaml, requests, yfinance, scipy).
 - API keys / secrets live at `C:\key-variables\key-variables.yaml` (e.g. `api_keys.fred` for the FRED GDP refresh). Never copy values from it into the repo.
+- SEC/EDGAR requests read their User-Agent (with contact email) from the `SEC_USER_AGENT` environment variable, set at user level by the operator. Never hardcode an email in the repo.
 - No test suite, linter, or build step. Correctness is checked by running the pipeline and inspecting outputs (`04_funnel.md`, `backtest/outputs/windows.csv`).
 
 ## Commands
@@ -21,6 +22,10 @@ C:\envs\.basic_venv\Scripts\python.exe backtest\run_windows.py
 # Rebuild backtest caches after a 13F/Compustat refresh (slow)
 C:\envs\.basic_venv\Scripts\python.exe backtest\build_screen_history.py
 C:\envs\.basic_venv\Scripts\python.exe backtest\fetch_prices.py
+
+# EDGAR TTM cross-check of the quant screen for all HC names (informational,
+# never changes the portfolio; writes quarters/Q/07_edgar_check.md)
+C:\envs\.basic_venv\Scripts\python.exe refresh\edgar_ttm_check.py 2026Q3
 
 # Check Compustat panel age (optionally per-quarter HC staleness)
 C:\envs\.basic_venv\Scripts\python.exe refresh\compustat_staleness.py [QUARTER]
@@ -46,7 +51,7 @@ Stage order (outputs to `quarters/{Q}/`: `01_screen.csv`, `02_ranks.parquet`, `0
 4. **Quant screen** (`lib/screen.py::derive_flags`): leverage, interest cover, clean earnings, revenue CAGR, cash conversion, quality gates. Missing data passes through.
 5. **Magic formula** (`lib/ranks.py`): percentile of summed EBIT/EV + ROC ranks vs the global universe (USD, ≥$50M cap, 90-day filing lag, 550-day max age). `mf.pctile_cutoff` is `null` — the percentile RANKS only, no hard filter — then take `mf.top_n` (7).
 6. **Price-runup cap** (`lib/pricecap.py`): drop candidates up more than `price_cap.max_runup` (+100%) since the end of `first_buy_quarter`. Applied BEFORE the top_n cut (survivors backfill). Behavioural constraint, costs ~0.6pt/yr — see `backtest/VARIANTS.md`.
-7. **Macro gate** (`lib/macro.py`): when S&P PE > 20, block names with market cap > 5% of US GDP. Applied AFTER the top_n cut; blocked slots are not backfilled.
+7. **Macro gate** (`lib/macro.py`): when S&P PE > 20, block names with market cap > 5% of US GDP. With `macro.backfill: true` (current) it is applied BEFORE the top_n cut, so the next-ranked survivors fill blocked slots; with `false` it runs after the cut and slots stay empty (`backtest/VARIANTS.md` §14).
 8. **Sizing**: equal weight capped at `sizing.max_weight` (20%) per ticker; remainder listed as CASH in `03_portfolio.txt`.
 
 `04_funnel.md` records every HC name with the exact reason it was selected or cut — the primary artifact for verifying a run.
